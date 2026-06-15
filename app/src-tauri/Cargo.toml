@@ -1,6 +1,6 @@
 [package]
 name = "eidon"
-version = "0.0.2"
+version = "0.0.3"
 description = "EIDON — local-first structured knowledge IDE"
 authors = ["NAMEWTA"]
 edition = "2021"
