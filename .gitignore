@@ -26,6 +26,7 @@ app/src-tauri/binaries/eidon-mcp-*
 *.dmg
 *.app
 *.icns
+!app/src-tauri/icons/*.icns
 
 # Build artifacts
 app/dist/
