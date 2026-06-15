@@ -1,0 +1,47 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Rust / Cargo
+target/
+**/*.rs.bk
+Cargo.lock
+!app/src-tauri/Cargo.lock
+!mcp-server/Cargo.lock
+
+# Tauri build output
+app/src-tauri/binaries/eidon-mcp-*
+
+# macOS
+*.dmg
+*.app
+*.icns
+
+# Build artifacts
+app/dist/
+app/dist-ssr/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+temp/
+.nezha/
+.claude/
+release/

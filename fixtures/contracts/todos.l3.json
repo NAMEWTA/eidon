@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "nodeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "updatedAt": "2026-06-13T09:00:00.000Z",
+  "items": [
+    {
+      "id": "01BX5ZZKBKACTAV9WEVGEMMVRZ",
+      "text": "完成向量检索调研初稿",
+      "done": false,
+      "createdAt": "2026-06-13T08:00:00.000Z",
+      "due": "2026-06-20T16:00:00.000Z",
+      "priority": "high",
+      "reminders": [
+        {
+          "id": "01BX5ZZKBKACTAV9WEVGEMMVS0",
+          "fireAt": "2026-06-20T01:00:00.000Z",
+          "repeat": "once",
+          "notified": false
+        }
+      ]
+    },
+    {
+      "id": "01BX5ZZKBKACTAV9WEVGEMMVS1",
+      "text": "每日站会同步进度",
+      "done": false,
+      "createdAt": "2026-06-13T08:00:00.000Z",
+      "due": null,
+      "priority": "normal",
+      "reminders": [
+        {
+          "id": "01BX5ZZKBKACTAV9WEVGEMMVS2",
+          "fireAt": "2026-06-14T01:30:00.000Z",
+          "repeat": "daily",
+          "notified": false
+        }
+      ]
+    }
+  ]
+}

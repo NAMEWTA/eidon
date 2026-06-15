@@ -1,0 +1,16 @@
+{
+  "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "templateId": "01BX5ZZKBKACTAV9WEVGEMMVRZ",
+  "level": 3,
+  "type": "node",
+  "schemaVersion": 1,
+  "createdAt": "2026-06-01T18:00:00.000Z",
+  "fields": {
+    "标题": "向量检索调研",
+    "状态": "进行中",
+    "字数": 1200,
+    "已归档": false
+  },
+  "references": [],
+  "flags": {}
+}

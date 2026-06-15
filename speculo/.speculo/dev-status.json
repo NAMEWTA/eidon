@@ -1,0 +1,12 @@
+{
+  "active": [
+    {
+      "change": "eidon-base-roadmap",
+      "title": "EIDON 第一步基座二次开发规划（grill 澄清）",
+      "dev_entry": "dev/01",
+      "current_phase": "decision-grill",
+      "decision_status": "resolved",
+      "updated_at": "2026-06-05"
+    }
+  ]
+}

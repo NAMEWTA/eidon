@@ -1,0 +1,16 @@
+{
+  "templateId": "01BX5ZZKBKACTAV9WEVGEMMVRZ",
+  "templateName": "档案",
+  "level": 1,
+  "name": "档案",
+  "version": 1,
+  "schemaVersion": 1,
+  "fields": [
+    { "key": "title", "label": "标题", "type": "text", "required": true },
+    { "key": "summary", "label": "摘要", "type": "textarea" },
+    { "key": "year", "label": "年份", "type": "number" },
+    { "key": "archivedAt", "label": "归档日期", "type": "date" },
+    { "key": "status", "label": "状态", "type": "select", "options": ["进行中", "已完成", "搁置"] },
+    { "key": "starred", "label": "星标", "type": "boolean" }
+  ]
+}

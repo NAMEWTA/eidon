@@ -1,0 +1,26 @@
+/* CodeMirror 宿主容器样式（迁移自 Editor.vue 的 scoped <style>）。
+ * React 无 scoped 样式；CM 生成的 .cm-editor DOM 按 ADR-0010 以全局 CSS 绑定主题变量。 */
+.cm-host {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+.cm-host .cm-editor {
+  height: 100%;
+  outline: none;
+}
+.cm-host .cm-editor.cm-focused {
+  outline: none;
+}
+
+/* YAML frontmatter 块（由 cm-frontmatter.ts 的行装饰标注）：
+ * 渲染成顶部独立块 —— 淡 accent 背景 + 左侧细竖条；闭合 `---` 行加底部分割线，
+ * 与正文形成清晰分隔。两个 `---` 的一致淡色由 processingInstruction 语法高亮负责。 */
+.cm-frontmatter {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.cm-frontmatter--end {
+  border-bottom: 1px solid var(--border);
+}

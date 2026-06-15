@@ -1,0 +1,58 @@
+/* Tailwind v4 入口（CSS-first）。
+ *
+ * 设计原则（见 ADR-0010）：主题系统的 CSS 变量（--bg/--text/--accent/--md-*…，
+ * 含 light/dark/自定义主题）是框架无关的根基，**零改动**。这里只把 Tailwind 的
+ * 颜色/字体 token 经 @theme inline **映射到既有 CSS 变量**——因此工具类
+ * （bg-bg / text-text / border-border …）会随主题切换自动变色，无需 dark: 变体。
+ *
+ * 命名约定，避免与 shadcn 语义冲突：
+ *   - 应用品牌橙色 = `brand`（对应旧 --accent）；用 text-brand / bg-brand。
+ *   - shadcn 的 `accent` 表示「悬停底色」，映射到 --bg-hover（菜单项 hover 等）。
+ */
+@import "tailwindcss";
+
+/* 暗色变体跟随 :root[data-theme="dark"]（项目用 data-theme，不用 .dark / 媒体查询）。
+ * 多数工具类因绑定 CSS 变量已自动随主题切换，dark: 仅在个别 chrome 微调时备用。 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  /* —— 应用语义色（绑定既有 CSS 变量）—— */
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+  --color-brand: var(--accent);
+  --color-brand-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+
+  /* —— shadcn/ui 期望的语义 token（复用同一套底层变量）—— */
+  --color-background: var(--bg-elev);
+  --color-foreground: var(--text);
+  --color-card: var(--bg-elev);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--menu-bg);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-fg);
+  --color-secondary: var(--bg-hover);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--bg-hover);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--bg-hover);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--brand-fg, #ffffff);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+
+  /* 字体栈复用既有变量 */
+  --font-ui: var(--font-ui);
+  --font-mono: var(--font-mono);
+
+  /* shadcn 默认观感（chrome 可换皮，见 ADR-0010） */
+  --radius: 0.5rem;
+}

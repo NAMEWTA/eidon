@@ -1,0 +1,17 @@
+{
+  "name": "eidon",
+  "private": true,
+  "packageManager": "pnpm@11.1.3",
+  "scripts": {
+    "dev": "pnpm --dir app tauri dev",
+    "dev:web": "pnpm --dir app dev",
+    "build": "pnpm --dir app build",
+    "lint": "pnpm --dir app lint",
+    "test:core": "pnpm --dir app test:core",
+    "contracts:check": "pnpm --dir app contracts:check",
+    "preview": "pnpm --dir app preview",
+    "tauri:dev": "pnpm --dir app tauri dev",
+    "tauri:build": "pnpm --dir app tauri build",
+    "tauri": "pnpm --dir app tauri"
+  }
+}
