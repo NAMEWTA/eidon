@@ -6,22 +6,46 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  lint-and-test:
+  checks:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm'
+          cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./app/src-tauri -> target
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.1 --locked
+
+      - name: Run cargo audit
+        working-directory: app/src-tauri
+        run: cargo audit
+
       - name: Install dependencies
-        run: pnpm install --dir app --frozen-lockfile
+        run: pnpm install --dir app --frozen-lockfile --ignore-scripts
 
       - name: Lint
         run: pnpm lint
@@ -31,3 +55,6 @@ jobs:
 
       - name: Contracts check
         run: pnpm contracts:check
+
+      - name: Web build
+        run: pnpm build
