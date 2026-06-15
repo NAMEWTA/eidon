@@ -1,4 +1,4 @@
-name: Release Build
+name: Release
 
 on:
   push:
@@ -7,13 +7,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── macOS ARM64 ──────────────────────────────────────────────
+  # ── macOS ARM64 (.dmg) ────────────────────────────────────────
   build-macos-arm64:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11
 
       - uses: actions/setup-node@v4
         with:
@@ -44,13 +46,15 @@ jobs:
           name: EIDON-macos-arm64
           path: release/*.dmg
 
-  # ── Windows x64 ──────────────────────────────────────────────
+  # ── Windows x64 (.exe) ────────────────────────────────────────
   build-windows-x64:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11
 
       - uses: actions/setup-node@v4
         with:
@@ -81,3 +85,39 @@ jobs:
         with:
           name: EIDON-windows-x64
           path: release/*.exe
+
+  # ── Create GitHub Release with all assets ─────────────────────
+  create-release:
+    needs: [build-macos-arm64, build-windows-x64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: EIDON-*
+          path: release
+          merge-multiple: true
+
+      - name: Display release assets
+        run: ls -lh release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "EIDON ${{ github.ref_name }}"
+          body: |
+            EIDON ${{ github.ref_name }} — 本地优先的结构化知识 IDE
+
+            ### 安装
+            - **macOS**: 下载 `.dmg`，拖入 Applications 文件夹
+            - **Windows**: 下载 `.exe` 安装程序
+
+            ### 系统要求
+            - macOS 10.15+ (Apple Silicon)
+            - Windows 10+ (x64)
+          files: release/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
