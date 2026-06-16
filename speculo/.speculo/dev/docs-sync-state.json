@@ -1,14 +1,20 @@
 {
   "schema_version": 1,
   "skill": "docs-sync",
-  "state_path": ".speculo/dev/docs-sync-state.json",
-  "tracked_docs": [],
-  "last_sync_sha": null,
-  "last_sync_short": null,
-  "last_sync_commit_subject": null,
-  "last_sync_commit_date": null,
-  "last_sync_run_at": null,
+  "state_path": "speculo/.speculo/dev/docs-sync-state.json",
+  "tracked_docs": [
+    "README.md",
+    "AGENTS.md"
+  ],
+  "last_sync_sha": "5ca3181b0418ae1aae54131ed914e0d8c3689930",
+  "last_sync_short": "5ca3181",
+  "last_sync_commit_subject": "feat(ci): auto-generate changelog from conventional commits in releases",
+  "last_sync_commit_date": "2026-06-16T19:15:38+08:00",
+  "last_sync_run_at": "2026-06-16T11:26:46Z",
   "previous_sync_sha": null,
-  "total_syncs": 0,
-  "synced_docs": []
+  "total_syncs": 1,
+  "synced_docs": [
+    "README.md",
+    "AGENTS.md"
+  ]
 }
