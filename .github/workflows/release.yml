@@ -133,15 +133,93 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Generate changelog from conventional commits
+        run: |
+          # Find previous tag (the one before this release)
+          PREV_TAG=$(git tag --sort=-v:refname | grep -A1 "^${GITHUB_REF_NAME}$" | tail -1)
+
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${PREV_TAG}..HEAD"
+          fi
+
+          echo "## What's Changed" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+
+          # Features
+          FEATS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^feat" || true)
+          if [ -n "$FEATS" ]; then
+            echo "### 🚀 Features" >> CHANGELOG.md
+            echo "$FEATS" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Bug Fixes
+          FIXES=$(git log "$RANGE" --pretty=format:"- %s" --grep="^fix" || true)
+          if [ -n "$FIXES" ]; then
+            echo "### 🐛 Bug Fixes" >> CHANGELOG.md
+            echo "$FIXES" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Refactors
+          REFS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^refactor" || true)
+          if [ -n "$REFS" ]; then
+            echo "### 🔧 Refactoring" >> CHANGELOG.md
+            echo "$REFS" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Chores
+          CHORES=$(git log "$RANGE" --pretty=format:"- %s" --grep="^chore" || true)
+          if [ -n "$CHORES" ]; then
+            echo "### 📦 Chores" >> CHANGELOG.md
+            echo "$CHORES" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Docs
+          DOCS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^docs" || true)
+          if [ -n "$DOCS" ]; then
+            echo "### 📝 Documentation" >> CHANGELOG.md
+            echo "$DOCS" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Style
+          STYLES=$(git log "$RANGE" --pretty=format:"- %s" --grep="^style" || true)
+          if [ -n "$STYLES" ]; then
+            echo "### 💄 Style" >> CHANGELOG.md
+            echo "$STYLES" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Tests
+          TESTS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^test" || true)
+          if [ -n "$TESTS" ]; then
+            echo "### ✅ Tests" >> CHANGELOG.md
+            echo "$TESTS" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          echo "Generated changelog:"
+          cat CHANGELOG.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: CHANGELOG.md
           files: release-artifacts/**/*
           token: ${{ secrets.GITHUB_TOKEN }}
