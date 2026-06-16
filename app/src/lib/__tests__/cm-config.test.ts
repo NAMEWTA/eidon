@@ -33,14 +33,14 @@ describe('cm-config branch helpers (M4)', () => {
   });
 
   it('richExtensionsFor：非 markdown → []', () => {
-    expect(richExtensionsFor(mkTab({ language: 'plaintext' }), { editorRender: 'source' })).toEqual([]);
+    expect(richExtensionsFor(() => mkTab({ language: 'plaintext' }), { editorRender: 'source' })).toEqual([]);
   });
 
   it('richExtensionsFor：editorRender=live → 非空（所见即所得）', () => {
-    expect(richExtensionsFor(mkTab({}), { editorRender: 'live' })).not.toEqual([]);
+    expect(richExtensionsFor(() => mkTab({}), { editorRender: 'live' })).not.toEqual([]);
   });
 
   it('richExtensionsFor：editorRender=source → 非空（纯源码高亮，与布局无关）', () => {
-    expect(richExtensionsFor(mkTab({}), { editorRender: 'source' })).not.toEqual([]);
+    expect(richExtensionsFor(() => mkTab({}), { editorRender: 'source' })).not.toEqual([]);
   });
 });

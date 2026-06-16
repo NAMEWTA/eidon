@@ -127,6 +127,8 @@ export interface EditorHandlers {
 
 export interface EditorBuildCtx {
   tab: Tab;
+  /** 读取「当前」tab 的实时 getter（live 图片块解析路径用）；缺省回退到 tab 快照。 */
+  getTab?: () => Tab;
   settings: EditorBuildSettings;
   compartments: EditorCompartments;
   /** prop 驱动的瞬时开关（App 从 settings 透传：focusMode/typewriterMode/spellCheck）。 */
@@ -172,13 +174,17 @@ export function wrapExt(on: boolean): Extension {
  * `live` → 所见即所得渲染（liveEditExtension + liveBlocks）；`source` → richHighlightOnly
  * （标记符始终可见的纯源码高亮）。markdown 才有。
  */
-export function richExtensionsFor(tab: Tab, settings: Pick<EditorBuildSettings, 'editorRender'>): Extension {
+// 接收 getTab（而非 tab 快照）：live 图片块的 getImageRoot/getFilePath 须读「当前」tab——
+// rich compartment 不随每次输入或 filePath 变化重建，若闭包捕获旧快照，untitled 存盘后
+// filePath 仍是 undefined、相对图片永远解析不出，导致 live 模式图片不渲染（#9）。
+export function richExtensionsFor(getTab: () => Tab, settings: Pick<EditorBuildSettings, 'editorRender'>): Extension {
+  const tab = getTab();
   if (tab.language !== 'markdown') return [];
   if (settings.editorRender === 'live') {
     return liveEditExtension([
       liveBlocksExtension({
-        getImageRoot: () => extractImageRoot(tab.content || ''),
-        getFilePath: () => tab.filePath,
+        getImageRoot: () => extractImageRoot(getTab().content || ''),
+        getFilePath: () => getTab().filePath,
       }),
       liveBlocksTheme,
     ]);
@@ -225,6 +231,7 @@ export function slashExt(handlers: EditorHandlers): Extension {
  */
 export function buildEditorExtensions(ctx: EditorBuildCtx): Extension[] {
   const { tab, settings, compartments: c, flags, handlers } = ctx;
+  const getTab = ctx.getTab ?? (() => ctx.tab);
   return [
     dragAwareExtension(),
     history(),
@@ -239,7 +246,7 @@ export function buildEditorExtensions(ctx: EditorBuildCtx): Extension[] {
     c.lineNum.of(lineNumberExt(settings.showLineNumbers)),
     c.wrap.of(wrapExt(settings.wordWrap)),
     c.lang.of(tab.language === 'markdown' ? [markdownExt()] : []),
-    c.rich.of(richExtensionsFor(tab, settings)),
+    c.rich.of(richExtensionsFor(getTab, settings)),
     c.theme.of(cmThemeFor(settings.theme)),
     c.vim.of(vimExt(settings.vimMode)),
     c.fontSize.of(fontSizeTheme(settings.fontSize, settings.fontFamily)),

@@ -21,6 +21,7 @@ import type {
 } from '@codemirror/autocomplete';
 import type { Extension } from '@codemirror/state';
 import { useWorkspaceIndexStore } from '../stores/workspaceIndex';
+import { rankTags } from './tags';
 
 /** A tag-name char, matching what `workspace_index.rs` accepts. */
 const TAG_CHAR = /[\p{L}\p{N}_/\-]/u;
@@ -90,25 +91,7 @@ function tagComplete(context: CompletionContext): CompletionResult | null {
     return null;
   }
 
-  const ranked = tags
-    .map((t) => {
-      const lc = t.tag.toLowerCase();
-      let score = 0;
-      if (lc === partial) score = 100;
-      else if (lc.startsWith(partial)) score = 80;
-      else if (lc.includes(partial)) score = 50;
-      return { t, score };
-    })
-    .filter((r) => r.score > 0)
-    .sort(
-      (a, b) =>
-        b.score - a.score ||
-        b.t.count - a.t.count ||
-        a.t.tag.localeCompare(b.t.tag),
-    )
-    .slice(0, 30);
-
-  const options: Completion[] = ranked.map(({ t }) => ({
+  const options: Completion[] = rankTags(partial, tags).map((t) => ({
     label: `#${t.tag}`,
     detail: String(t.count),
     // Replace the entire `#partial` match with `#tagname` so we don't end up

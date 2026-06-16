@@ -9,6 +9,7 @@ import * as git from "../bridge/git";
 export type SnapshotWorkspaceStatus = git.WorkspaceStatus;
 export type SnapshotCommitMeta = git.CommitMeta;
 export type SnapshotDiffResult = git.DiffResult;
+export type SnapshotPruneResult = git.PruneResult;
 
 export interface SnapshotGateway {
   workspaceStatus(folder: string): Promise<SnapshotWorkspaceStatus>;
@@ -18,6 +19,8 @@ export interface SnapshotGateway {
   fileDiff(folder: string, filePath: string, sha: string): Promise<SnapshotDiffResult>;
   fileAtVersion(folder: string, filePath: string, sha: string): Promise<string>;
   rollbackFile(folder: string, filePath: string, sha: string): Promise<void>;
+  repoSize(folder: string): Promise<number>;
+  pruneHistory(folder: string, maxCommits: number): Promise<SnapshotPruneResult>;
 }
 
 const defaultGateway: SnapshotGateway = git;
@@ -68,3 +71,16 @@ export const restoreFileSnapshot = (
   sha: string,
   gateway: SnapshotGateway = defaultGateway,
 ): Promise<void> => gateway.rollbackFile(folder, filePath, sha);
+
+/** `.git` 体积（字节）。 */
+export const getSnapshotRepoSize = (
+  folder: string,
+  gateway: SnapshotGateway = defaultGateway,
+): Promise<number> => gateway.repoSize(folder);
+
+/** 历史修剪：保留最近 maxCommits 个提交（破坏性，见 ADR-0023）。 */
+export const pruneSnapshotHistory = (
+  folder: string,
+  maxCommits: number,
+  gateway: SnapshotGateway = defaultGateway,
+): Promise<SnapshotPruneResult> => gateway.pruneHistory(folder, maxCommits);

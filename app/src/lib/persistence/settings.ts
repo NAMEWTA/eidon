@@ -46,6 +46,8 @@ export interface Settings {
   fontFamily: string;
   wordWrap: boolean;
   showLineNumbers: boolean;
+  /** 文件资源管理器是否显示 `.` 开头的隐藏文件/文件夹（系统项如 .eidon/.node/.git 始终隐藏）。 */
+  showHiddenFiles: boolean;
   /** 左/右抽屉当前视图（替代旧 showFileTree / rightSidebarHidden / 各面板显隐字段）。 */
   leftPanelView: LeftPanelView;
   rightPanelView: RightPanelView;
@@ -58,12 +60,10 @@ export interface Settings {
   language: 'zh' | 'en';
   autoCheckUpdate: boolean;
   previewFitWidth: boolean;
-  customCssPath: string;
   restoreSession: boolean;
   perWorkspaceTabs: boolean;
   autoReloadExternalChanges: boolean;
   autoSaveOnBlur: boolean;
-  revealInFileTreeOnOpen: boolean;
   welcomeShown: boolean;
   spellcheckEnabled: boolean;
   /** 日记模板内容（路径与文件名固定走日历整理箱规则，不再可配置）。 */
@@ -73,6 +73,12 @@ export interface Settings {
   workspaceCsl: string;
   autoGitEnabled: boolean;
   autoGitDebounceSeconds: number;
+  /** 单文件历史面板显示的最大版本数（仅显示上限，不改写历史）。 */
+  historyMaxVersionsPerFile: number;
+  /** 整仓保留的最大提交数（0=不限）；超出则自动修剪最旧提交（破坏性，见 ADR-0023）。 */
+  historyMaxCommits: number;
+  /** `.git` 最大体积 MB（0=不限）；超出则进一步修剪 + gc。 */
+  historyMaxGitSizeMb: number;
   readingByDefaultOnMobile: boolean;
   lastNonReadingViewMode: ViewMode;
   showWritingStats: boolean;
@@ -137,6 +143,7 @@ export function defaultSettings(): Settings {
     fontFamily: 'JetBrains Mono',
     wordWrap: true,
     showLineNumbers: true,
+    showHiddenFiles: false,
     leftPanelView: isMobile() ? null : 'explorer',
     rightPanelView: null,
     fileTreeWidth: 260,
@@ -148,20 +155,21 @@ export function defaultSettings(): Settings {
     autoCheckUpdate: true,
     language: 'zh',
     previewFitWidth: false,
-    customCssPath: '',
     restoreSession: true,
     perWorkspaceTabs: true,
     autoReloadExternalChanges: true,
     autoSaveOnBlur: false,
-    revealInFileTreeOnOpen: false,
     welcomeShown: false,
     spellcheckEnabled: false,
     dailyNotesTemplate: '',
     sideSidebarWidth: 260,
     workspaceBibliography: '',
     workspaceCsl: '',
-    autoGitEnabled: false,
+    autoGitEnabled: true,
     autoGitDebounceSeconds: 30,
+    historyMaxVersionsPerFile: 50,
+    historyMaxCommits: 0,
+    historyMaxGitSizeMb: 0,
     readingByDefaultOnMobile: (() => {
       try {
         return isIOS();
@@ -236,6 +244,8 @@ const RETIRED_KEYS = [
   'dailyNotesFolder',
   'dailyNotesFormat',
   '_rsPanesBeforeHide',
+  'revealInFileTreeOnOpen',
+  'customCssPath',
 ] as const;
 
 /** raw → 校验/迁移后的 Settings。 */

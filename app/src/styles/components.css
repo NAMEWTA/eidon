@@ -924,6 +924,108 @@ body.rs-splitter--dragging .rs-splitter {
 .tags-panel__pill { font-size: 12px; font-weight: 500; color: var(--accent, #ff9f40); font-family: var(--font-mono); word-break: break-all; }
 .tags-panel__count { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; margin-left: 8px; flex-shrink: 0; }
 
+/* ---- 标签 chip 输入（属性面板 frontmatter tags 编辑，TagInput.tsx） ---- */
+.tag-input { position: relative; width: 100%; }
+.tag-input__box {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  min-height: 30px; padding: 3px 6px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.tag-input__box:focus-within { border-color: var(--accent); }
+.tag-input__chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 4px 1px 7px; border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 14%, var(--bg));
+  border: 1px solid color-mix(in oklab, var(--accent) 38%, var(--border));
+  color: var(--accent-ink, var(--accent)); font-size: 12px; font-family: var(--font-mono);
+  line-height: 1.5; white-space: nowrap;
+}
+.tag-input__chip-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: inherit; cursor: pointer; opacity: 0.7;
+}
+.tag-input__chip-x:hover { opacity: 1; background: color-mix(in oklab, var(--accent) 25%, transparent); }
+.tag-input__field {
+  flex: 1; min-width: 80px; border: 0; outline: 0; background: transparent;
+  font: 13px var(--font-ui); color: var(--text); padding: 2px;
+}
+.tag-input__field::placeholder { color: var(--text-faint); }
+.tag-input__menu {
+  position: absolute; z-index: 50; left: 0; right: 0; top: calc(100% + 2px);
+  list-style: none; margin: 0; padding: 4px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: var(--shadow-md, 0 6px 20px rgba(0,0,0,0.18)); max-height: 220px; overflow-y: auto;
+}
+.tag-input__opt {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  padding: 5px 8px; border: 0; border-radius: 5px; background: transparent;
+  cursor: pointer; color: var(--text);
+}
+.tag-input__opt--active, .tag-input__opt:hover { background: var(--bg-hover); }
+.tag-input__opt-name { font-size: 12px; font-family: var(--font-mono); color: var(--accent, #ff9f40); }
+.tag-input__opt-count { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* ---- 概览页（OverviewPanel：无文件时默认 / 点宠物唤出） ---- */
+.overview {
+  position: relative;
+  flex: 1;               /* 填满 .content 弹性行容器的全宽，避免仅按内容宽度自适应 */
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+  padding: 48px max(24px, 8%) 64px;
+  box-sizing: border-box;
+}
+.overview__close {
+  position: absolute; top: 14px; right: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-elev); color: var(--text-muted); cursor: pointer;
+}
+.overview__close:hover { color: var(--text); background: var(--bg-hover); }
+.overview__hero {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 6px; margin-bottom: 36px;
+}
+.overview__pet { transform: scale(1.6); margin-bottom: 10px; }
+.overview__title { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: 0.08em; color: var(--text); }
+.overview__tagline { margin: 0; font-size: 13px; color: var(--text-muted); }
+.overview__section { max-width: 720px; margin: 0 auto 28px; }
+.overview__section-title {
+  margin: 0 0 12px; font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-faint);
+}
+.overview__actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.overview__action {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 18px; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-elev); color: var(--text); font-size: 13px; cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.overview__action:hover { border-color: var(--accent); background: var(--bg-hover); }
+.overview__stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+.overview__stat {
+  padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-elev); text-align: left;
+}
+.overview__stat--warn { border-color: color-mix(in oklab, var(--amber, #e0a040) 55%, var(--border)); }
+.overview__stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.overview__stat--warn .overview__stat-value { color: color-mix(in oklab, var(--amber, #e0a040) 80%, var(--text)); }
+.overview__stat-label { margin-top: 2px; font-size: 11px; color: var(--text-muted); }
+.overview__recents { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.overview__recent {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 12px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--text); cursor: pointer; text-align: left;
+}
+.overview__recent:hover { background: var(--bg-hover); border-color: var(--border); }
+.overview__recent--active { border-color: color-mix(in oklab, var(--accent) 40%, var(--border)); }
+.overview__recent-name { font-size: 13px; flex-shrink: 0; }
+.overview__recent-path {
+  font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex: 1; min-width: 0;
+}
+
 /* ---- Todos panel（节点级待办 + 定时提醒，左抽屉聚合视图） ---- */
 .todos-panel { display: flex; flex-direction: column; height: 100%; background: var(--bg); overflow: hidden; }
 .todos-panel__head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-soft); gap: 8px; }
@@ -2775,7 +2877,7 @@ body.rs-splitter--dragging .rs-splitter {
   color: var(--text);
 }
 .ftree__template-mark {
-  margin-left: auto;
+  /* 右对齐由 .ftree__row-fill 的 flex-grow 承担（置于文件名后、徽标前）；此处不再用 margin-left:auto。 */
   flex: 0 0 auto;
   width: 17px;
   height: 17px;
@@ -2963,6 +3065,33 @@ body.rs-splitter--dragging .rs-splitter {
 .ftree__move {
   width: min(440px, 92vw);
   max-height: min(480px, 80vh);
+}
+/* 新建文件/文件夹输入对话框（复用 node-dialog + ftree__move-head 头部） */
+.ftree__name-dialog {
+  width: min(420px, 92vw);
+}
+.ftree__name-dialog-body {
+  padding: 14px 14px 4px;
+}
+.ftree__name-dialog-body input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font: 13px var(--font-ui);
+  color: var(--text);
+  outline: 0;
+}
+.ftree__name-dialog-body input:focus {
+  border-color: var(--accent);
+}
+.ftree__name-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 14px 14px;
 }
 .ftree__move-head {
   display: flex;

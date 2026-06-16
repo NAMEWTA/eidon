@@ -7,6 +7,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { Icon } from './Icons';
 import { useTabsStore } from '../stores/tabs';
 import { useWorkspaceStore } from '../stores/workspace';
+import { useSettingsStore } from '../stores/settings';
 import { useGitHistoryStore, type CommitMeta, type DiffResult } from '../stores/gitHistory';
 import { useToastsStore } from '../stores/toasts';
 import { useI18n } from '../i18n';
@@ -37,7 +38,8 @@ export function HistoryPanel({ onClose }: { onClose?: () => void }) {
     }
     setLoading(true);
     try {
-      setCommits(await useGitHistoryStore.getState().historyFor(folder, activeFile));
+      const limit = useSettingsStore.getState().historyMaxVersionsPerFile;
+      setCommits(await useGitHistoryStore.getState().historyFor(folder, activeFile, limit));
     } finally {
       setLoading(false);
     }

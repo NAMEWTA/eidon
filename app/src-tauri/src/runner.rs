@@ -20,6 +20,8 @@ mod pandoc;
 mod git_history;
 #[path = "git/git_ops.rs"]
 mod git_ops;
+#[path = "git/git_prune.rs"]
+mod git_prune;
 
 // v2.5 CJK proofread — flags common Chinese typos with one-click fixes.
 #[path = "knowledge/cjk_proofread.rs"]
@@ -583,6 +585,8 @@ pub fn run() {
             git_ops::git_checkout,
             git_ops::git_restore_head,
             git_ops::git_delete_branch,
+            git_prune::git_repo_size,
+            git_prune::git_prune_history,
             cjk_proofread::cjk_proofread,
             github_sync::github_set_token,
             github_sync::github_clear_token,

@@ -33,6 +33,7 @@ import { useAutoCommit } from './composables/useAutoCommit';
 import { useSessionRestore } from './composables/useSessionRestore';
 import { SessionRestoreDialog } from './components/SessionRestoreDialog';
 import { BasesView } from './components/BasesView';
+import { OverviewPanel } from './components/OverviewPanel';
 import { BASES_OPEN_EVENT, BASES_CLOSE_EVENT } from './composables/useBasesView';
 import { FileTree } from './components/FileTree';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -52,7 +53,6 @@ import { useFiles } from './composables/useFiles';
 import { useExport } from './composables/useExport';
 import { useShortcuts } from './composables/useShortcuts';
 import { useFileWatcher } from './composables/useFileWatcher';
-import { loadCustomTheme } from './lib/custom-theme';
 import { isIOS } from './lib/platform';
 import { useI18n } from './i18n';
 import { openWelcomeTour } from './lib/welcome-tour';
@@ -73,6 +73,7 @@ export function App() {
   const currentFolder = useWorkspaceStore((s) => s.currentFolder);
   const scannedNodes = useNodesStore((s) => s.nodes);
   const tilesRoot = useTilesStore((s) => s.root);
+  const tabCount = useTabsStore((s) => s.tabs.length);
 
   const [cursorLine, setCursorLine] = useState(1);
   const [cursorCol, setCursorCol] = useState(1);
@@ -87,6 +88,7 @@ export function App() {
   const [cjkProofreadOpen, setCjkProofreadOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [basesOpen, setBasesOpen] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   // Unsaved-changes 对话框。
   const [unsavedOpen, setUnsavedOpen] = useState(false);
@@ -322,6 +324,8 @@ export function App() {
   const activeTabId = useTabsStore((s) => s.activeId);
   useEffect(() => {
     setSelectedNodeId(null);
+    // 打开/切到某个真实文件时收起概览页（让位给编辑器）。
+    if (activeTabId) setOverviewOpen(false);
   }, [activeTabId]);
 
   // ---- 挂载：生命周期 composable、所有 window/Tauri 监听、store.subscribe watchers、onMounted 异步块 ----
@@ -380,6 +384,7 @@ export function App() {
     const onOpenCjkProofreadEvent = () => setCjkProofreadOpen(true);
     const onOpenBases = () => setBasesOpen(true);
     const onCloseBases = () => setBasesOpen(false);
+    const onOpenOverview = () => setOverviewOpen(true);
     const onSelectStructureNodeEvent = (event: Event) => {
       const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
       if (!nodeId) return;
@@ -421,6 +426,7 @@ export function App() {
     window.addEventListener('eidon:wiki-open', onWikiOpen as EventListener);
     window.addEventListener(BASES_OPEN_EVENT, onOpenBases as EventListener);
     window.addEventListener(BASES_CLOSE_EVENT, onCloseBases as EventListener);
+    window.addEventListener('eidon:open-overview', onOpenOverview as EventListener);
     window.addEventListener('eidon:open-settings', onOpenSettingsEvent as EventListener);
     window.addEventListener('eidon:remote-pulled', onRemotePulled);
 
@@ -492,7 +498,6 @@ export function App() {
     let prevLang: string | undefined;
     let prevIdxFolder: string | null | undefined;
     let spellcheckLoaded = false;
-    let prevCss: string | undefined;
     function reconcile() {
       const s = useSettingsStore.getState();
       const ws = useWorkspaceStore.getState();
@@ -517,10 +522,6 @@ export function App() {
           .then(() => { spellcheckLoaded = true; })
           .catch((e) => console.warn('spellcheck_init failed', e));
       }
-      if (s.customCssPath !== prevCss) {
-        prevCss = s.customCssPath;
-        loadCustomTheme(s.customCssPath);
-      }
     }
     reconcile();
     const unsubSettings = useSettingsStore.subscribe(() => reconcile());
@@ -543,9 +544,8 @@ export function App() {
       if (isFreshLaunch) {
         openWelcomeTour();
         sNow.markWelcomeShown();
-      } else if (tabsNow.tabs.length === 0) {
-        tabsNow.newTab();
       }
+      // 不再默认新建 Untitled.md：无打开文件时由内容区显示概览页（OverviewPanel）。
 
       // 初始化 tile 布局。
       const tiles0 = useTilesStore.getState();
@@ -622,6 +622,7 @@ export function App() {
       window.removeEventListener('eidon:wiki-open', onWikiOpen as EventListener);
       window.removeEventListener(BASES_OPEN_EVENT, onOpenBases as EventListener);
       window.removeEventListener(BASES_CLOSE_EVENT, onCloseBases as EventListener);
+      window.removeEventListener('eidon:open-overview', onOpenOverview as EventListener);
       window.removeEventListener('eidon:open-settings', onOpenSettingsEvent as EventListener);
       window.removeEventListener('eidon:remote-pulled', onRemotePulled);
       unsubTabs();
@@ -699,6 +700,8 @@ export function App() {
             <div className="content">
               {basesOpen ? (
                 <BasesView />
+              ) : (overviewOpen || tabCount === 0) ? (
+                <OverviewPanel onClose={tabCount > 0 ? () => setOverviewOpen(false) : undefined} />
               ) : (
                 <TileRoot node={tilesRoot} onCursor={onCursor} onSelection={onSelection} />
               )}

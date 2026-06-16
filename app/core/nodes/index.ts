@@ -372,6 +372,25 @@ const buildNode = (input: {
     flags: {},
   });
 
+/**
+ * 节点 AGENTS.md 默认内容：撰写本节点所处的 L1/L2/L3 目录层级结构与名称，供 AI 助手参考。
+ * 由相对路径各段（= L1/L2/L3 名）+ node.level/type 生成。
+ */
+const buildNodeAgentsDoc = (relPath: string, node: Node): string => {
+  const segs = splitPath(relPath);
+  const name = segs[segs.length - 1] ?? "";
+  const chain = segs.map((seg, i) => `L${i + 1} ${seg}`).join(" / ");
+  return [
+    `# ${name}`,
+    "",
+    `- 层级：L${node.level}（${node.type}）`,
+    `- 结构路径：${chain}`,
+    "",
+    "> 本文件由 EIDON 在创建节点时生成，记录本节点在 L1/L2/L3 结构中的位置与名称，供 AI 助手参考。",
+    "",
+  ].join("\n");
+};
+
 const writeNodeEnvelope = async (
   store: NodeStore,
   path: string,
@@ -384,10 +403,11 @@ const writeNodeEnvelope = async (
     joinPath(normalizedPath, ".node/node.json"),
     JSON.stringify(NodeSchema.parse(node), null, 2),
   );
-  const readmePath = joinPath(normalizedPath, "README.md");
+  // 仅初始化 AGENTS.md（带层级结构内容）；不再创建 README.md。
   const agentsPath = joinPath(normalizedPath, "AGENTS.md");
-  if (!(await store.exists(readmePath))) await store.writeFile(readmePath, "");
-  if (!(await store.exists(agentsPath))) await store.writeFile(agentsPath, "");
+  if (!(await store.exists(agentsPath))) {
+    await store.writeFile(agentsPath, buildNodeAgentsDoc(normalizedPath, node));
+  }
   return { node, path: normalizedPath, depth: node.level };
 };
 

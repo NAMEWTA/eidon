@@ -277,7 +277,7 @@ export const useTabsStore = create<PersistedState & TabsActions>()((set, get) =>
       const key = closed?.filePath || closed?.id;
       if (key) ws.closePath(key);
     } catch {}
-    if (get().tabs.length === 0) get().newTab();
+    // 关掉最后一个标签后允许 0 标签：内容区会显示概览页（不再自动建 Untitled.md）。
   },
 
   activate(id) {
@@ -371,7 +371,7 @@ export const useTabsStore = create<PersistedState & TabsActions>()((set, get) =>
       for (const t of removed) tiles.removePaneReferences(t.id);
       tiles.validate(get().tabs);
     } catch {}
-    if (get().tabs.length === 0) get().newTab();
+    // 切换工作区后允许 0 标签（概览页兜底）。
     get().persist();
   },
 }));

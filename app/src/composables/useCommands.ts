@@ -122,27 +122,6 @@ export function useCommands(): Command[] {
       run: () => { window.dispatchEvent(new CustomEvent('eidon:open-global-search')); },
     },
 
-    {
-      id: 'theme.customCss',
-      title: t('cmd.themeCustomCss'),
-      hint: t('cmd.themeCustomCssHint'),
-      run: async () => {
-        const path = await openFileDialog({ multiple: false, filters: [{ name: 'CSS', extensions: ['css'] }] });
-        if (path && typeof path === 'string') {
-          useSettingsStore.getState().setCustomCssPath(path);
-          useToastsStore.getState().success(t('cmd.customCssLoaded'));
-        }
-      },
-    },
-    {
-      id: 'theme.clearCustomCss',
-      title: t('cmd.themeClearCustomCss'),
-      run: () => {
-        useSettingsStore.getState().setCustomCssPath('');
-        useToastsStore.getState().info(t('cmd.customCssCleared'));
-      },
-    },
-
     { id: 'cn.s2t', title: t('cmd.cnS2t'), hint: t('cmd.cnS2tHint'), run: () => transformActive(simplifiedToTraditional, t('cmd.convertedToTraditional')) },
     { id: 'cn.t2s', title: t('cmd.cnT2s'), run: () => transformActive(traditionalToSimplified, t('cmd.convertedToSimplified')) },
     {

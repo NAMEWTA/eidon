@@ -43,7 +43,7 @@ export function StatusBar({ line, col, selectionText = '' }: { line: number; col
       {selStats && (
         <span className="seg seg--selection" title={t('statusBar.selectionTooltip')}>
           · {t('statusBar.selection', { words: String(selStats.total), chars: String(selStats.chars) })}
-          {selStats.cjk > 0 && <span className="seg--cjk">({selStats.cjk} 字)</span>}
+          {selStats.cjk > 0 && <span className="seg--cjk"> ({selStats.cjk} 字)</span>}
         </span>
       )}
       {showWritingStats && <WritingGoals />}

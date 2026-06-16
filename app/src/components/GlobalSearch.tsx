@@ -9,6 +9,7 @@ import { openPath } from '../composables/useFiles';
 import { useTabsStore } from '../stores/tabs';
 import { useTilesStore } from '../stores/tiles';
 import { useWorkspaceStore } from '../stores/workspace';
+import { useWorkspaceIndexStore } from '../stores/workspaceIndex';
 import { useI18n } from '../i18n';
 
 function escapeHtml(s: string) {
@@ -34,6 +35,23 @@ export function GlobalSearch({ prefill, onClose }: { prefill?: string; onClose?:
     const q = q0.trim();
     if (!q) {
       setHits([]);
+      return;
+    }
+    // 标签查询：`#tag` 直接按工作区索引列出带该标签的文件——全文搜索匹配不到 frontmatter
+    // 里的 `tags: [tag]`（正文未必出现 `#tag`），故走索引的 tag→files 映射，准确无误。
+    if (q.startsWith('#')) {
+      const name = q.slice(1).trim().toLowerCase();
+      if (!name) {
+        setHits([]);
+        return;
+      }
+      const tags = useWorkspaceIndexStore.getState().tags;
+      const match =
+        tags.find((tagRow) => tagRow.tag.toLowerCase() === name) ??
+        tags.find((tagRow) => tagRow.tag.toLowerCase().startsWith(name));
+      const files = match?.files ?? [];
+      setHits(files.map((file) => ({ file, line: 1, snippet: `#${match!.tag}` })));
+      setSelectedIdx(0);
       return;
     }
     setLoading(true);

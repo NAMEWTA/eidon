@@ -45,6 +45,27 @@ export function canCreateContentInScannedL3(
   return false;
 }
 
+/**
+ * 求某相对路径所属（最近的）L3 节点路径——即最长匹配的 L3 前缀；不在任何 L3 内返回 null。
+ * 用于「在当前激活文件/文件夹所在 L3 下新建内容」。
+ */
+export function findEnclosingL3Path(
+  relativePath: string,
+  l3NodePaths: Iterable<string>,
+): string | null {
+  const target = normalizeRelativePath(relativePath);
+  if (!target) return null;
+  let best: string | null = null;
+  for (const l3Path of l3NodePaths) {
+    const normalizedL3 = normalizeRelativePath(l3Path);
+    if (!normalizedL3) continue;
+    if (target === normalizedL3 || target.startsWith(`${normalizedL3}/`)) {
+      if (best === null || normalizedL3.length > best.length) best = normalizedL3;
+    }
+  }
+  return best;
+}
+
 export function canWriteContentFileInScannedL3(
   relativeFilePath: string,
   l3NodePaths: Iterable<string>,

@@ -28,7 +28,6 @@ describe('openPath EIDON content guard', () => {
     saveDialogMock.mockReset();
 
     useSettingsStore.setState({
-      revealInFileTreeOnOpen: false,
       leftPanelView: 'explorer',
     });
     useTabsStore.setState({ tabs: [], activeId: '' });

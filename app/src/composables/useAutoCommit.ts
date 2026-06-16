@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '../stores/workspace';
 import { useGitHistoryStore } from '../stores/gitHistory';
 import { useTabsStore } from '../stores/tabs';
 import { useToastsStore } from '../stores/toasts';
+import { scheduleHistoryPrune } from '../lib/history-prune';
 import { t } from '../i18n';
 
 let listening = false;
@@ -25,7 +26,8 @@ function isEnabled(): boolean {
 
 async function ensureInitialized(folder: string): Promise<boolean> {
   const gh = useGitHistoryStore.getState();
-  if (!gh.status) await gh.refreshStatus(folder);
+  // 状态缓存为 null 或缓存的 folder 与当前不一致 → 重新查询，防止 workspace 切换后使用旧缓存误判已初始化
+  if (!gh.status || gh.folder !== folder) await gh.refreshStatus(folder);
   if (useGitHistoryStore.getState().isInitialized()) return true;
   try {
     await useGitHistoryStore.getState().init(folder);
@@ -51,6 +53,8 @@ async function performCommit(): Promise<void> {
       const sha = await useGitHistoryStore.getState().commit(folder, filePath);
       if (sha) {
         useToastsStore.getState().success(t('history.savedSnapshot', { sha: sha.slice(0, 7) }));
+        // 自动按设置上限修剪历史（去抖、后台；无上限时 no-op）。
+        scheduleHistoryPrune(folder);
       }
     } catch (e) {
       useToastsStore.getState().error(`${t('history.commitFailed')}: ${e}`);

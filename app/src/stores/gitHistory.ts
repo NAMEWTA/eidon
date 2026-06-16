@@ -3,13 +3,16 @@ import { listen, type UnlistenFn } from '../../core/bridge/tauri';
 import {
   commitSnapshot,
   diffFileSnapshot,
+  getSnapshotRepoSize,
   getSnapshotStatus,
   initSnapshotHistory,
   listFileSnapshots,
+  pruneSnapshotHistory,
   readFileSnapshot,
   restoreFileSnapshot,
   type SnapshotCommitMeta,
   type SnapshotDiffResult,
+  type SnapshotPruneResult,
   type SnapshotWorkspaceStatus,
 } from '../../core/snapshots';
 
@@ -39,6 +42,8 @@ interface Actions {
   diff(folder: string, filePath: string, sha: string): Promise<DiffResult | null>;
   fileAt(folder: string, filePath: string, sha: string): Promise<string | null>;
   rollback(folder: string, filePath: string, sha: string): Promise<void>;
+  repoSize(folder: string): Promise<number>;
+  prune(folder: string, maxCommits: number): Promise<SnapshotPruneResult>;
 }
 
 let unlisten: UnlistenFn | null = null;
@@ -136,5 +141,22 @@ export const useGitHistoryStore = create<State & Actions>()((set, get) => ({
     const { [filePath]: _drop, ...rest } = get().history;
     void _drop;
     set({ history: rest });
+  },
+
+  async repoSize(folder) {
+    try {
+      return await getSnapshotRepoSize(folder);
+    } catch (e) {
+      set({ lastError: String(e) });
+      return 0;
+    }
+  },
+
+  async prune(folder, maxCommits) {
+    const result = await pruneSnapshotHistory(folder, maxCommits);
+    // 历史已改写 → 失效缓存，重读状态。
+    set({ history: {} });
+    await get().refreshStatus(folder);
+    return result;
   },
 }));

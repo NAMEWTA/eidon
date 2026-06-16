@@ -16,8 +16,13 @@ type GroupKey = 'overdue' | 'today' | 'upcoming' | 'noDate' | 'done';
 const GROUP_ORDER: GroupKey[] = ['overdue', 'today', 'upcoming', 'noDate', 'done'];
 
 // 分组参考时刻：优先截止日，否则取最早提醒；都无 → null（无期）。
+// 截止日仅有日期语义（创建时落当天 00:00），按「当天结束」计——否则当天 0 点后即被判逾期。
 const refTime = (item: TodoItem): number | null => {
-  if (item.due) return new Date(item.due).getTime();
+  if (item.due) {
+    const d = new Date(item.due);
+    d.setHours(23, 59, 59, 999);
+    return d.getTime();
+  }
   const ts = item.reminders.map((r) => new Date(r.fireAt).getTime());
   return ts.length ? Math.min(...ts) : null;
 };

@@ -132,10 +132,15 @@ describe("createNode", () => {
       now,
     });
 
-    expect(await readFile(join(root, "研究/README.md"), "utf8")).toBe("");
-    expect(await readFile(join(root, "研究/AGENTS.md"), "utf8")).toBe("");
-    expect(await readFile(join(root, "研究/向量检索/实验记录/README.md"), "utf8")).toBe("");
-    expect(await readFile(join(root, "研究/向量检索/实验记录/AGENTS.md"), "utf8")).toBe("");
+    // 创建节点不再生成 README.md；AGENTS.md 写入本节点的 L1/L2/L3 层级结构内容。
+    expect(await store.exists("研究/README.md")).toBe(false);
+    expect(await store.exists("研究/向量检索/实验记录/README.md")).toBe(false);
+    const l1Agents = await readFile(join(root, "研究/AGENTS.md"), "utf8");
+    expect(l1Agents).toContain("# 研究");
+    expect(l1Agents).toContain("结构路径：L1 研究");
+    const l3Agents = await readFile(join(root, "研究/向量检索/实验记录/AGENTS.md"), "utf8");
+    expect(l3Agents).toContain("# 实验记录");
+    expect(l3Agents).toContain("结构路径：L1 研究 / L2 向量检索 / L3 实验记录");
 
     expect(l1.node.level).toBe(1);
     expect(l1.node.type).toBe("研究域");
@@ -312,8 +317,9 @@ describe("promoteFolderToNode", () => {
     });
     expect(l1.node.level).toBe(1);
     expect(await readFile(join(root, "Inbox/legacy.md"), "utf8")).toBe("# legacy");
+    // 既有 README.md 保持不动（不再创建、也不覆盖）；AGENTS.md 写入层级结构内容。
     expect(await readFile(join(root, "Inbox/README.md"), "utf8")).toBe("# Existing readme");
-    expect(await readFile(join(root, "Inbox/AGENTS.md"), "utf8")).toBe("");
+    expect(await readFile(join(root, "Inbox/AGENTS.md"), "utf8")).toContain("# Inbox");
 
     const l2 = await promoteFolderToNode(store, { path: "Inbox/Topic", templateLayer: layers[2] });
     const l3 = await promoteFolderToNode(store, {

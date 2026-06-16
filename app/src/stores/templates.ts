@@ -39,6 +39,12 @@ const resolveWorkspace = (workspace?: string | null): string => {
   return resolved;
 };
 
+// 在途去重：init 会被 FileTree.refreshRoot 与 TemplateManager 挂载等多处并发调用。
+// initWorkspaceTemplates 以「.eidon/templates 目录是否存在」为只初始化一次的守卫，但该
+// 目录是写第一个模板时才懒创建——两次 init 并发时都会越过守卫、各写一套种子，导致内置
+// 模板重复（每名两份）。这里按工作区缓存在途 Promise，并发调用复用同一次，串行化种子化。
+const initInFlight = new Map<string, Promise<Template[]>>();
+
 export const useTemplatesStore = create<TemplatesState & TemplatesActions>()((set, get) => ({
   templates: [],
   invalidTemplates: [],
@@ -65,21 +71,30 @@ export const useTemplatesStore = create<TemplatesState & TemplatesActions>()((se
 
   async init(workspace) {
     const root = resolveWorkspace(workspace);
+    // 同一工作区的并发 init 复用在途 Promise，避免种子化竞态（见 initInFlight 注释）。
+    const pending = initInFlight.get(root);
+    if (pending) return pending;
     set({ loading: true, error: null });
-    try {
-      const store = createWorkspaceFileStore(root);
-      await initWorkspaceTemplates(store);
-      const [templates, invalidTemplates] = await Promise.all([
-        listTemplates(store),
-        listInvalidTemplates(store),
-      ]);
-      set({ templates, invalidTemplates, loading: false });
-      return templates;
-    } catch (error) {
-      const message = String(error);
-      set({ error: message, loading: false });
-      throw error;
-    }
+    const run = (async () => {
+      try {
+        const store = createWorkspaceFileStore(root);
+        await initWorkspaceTemplates(store);
+        const [templates, invalidTemplates] = await Promise.all([
+          listTemplates(store),
+          listInvalidTemplates(store),
+        ]);
+        set({ templates, invalidTemplates, loading: false });
+        return templates;
+      } catch (error) {
+        const message = String(error);
+        set({ error: message, loading: false });
+        throw error;
+      } finally {
+        initInFlight.delete(root);
+      }
+    })();
+    initInFlight.set(root, run);
+    return run;
   },
 
   async create(input, workspace) {

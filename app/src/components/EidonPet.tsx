@@ -136,6 +136,8 @@ export function EidonPet({ label = 'EIDON' }: EidonPetProps) {
 
   function handleClick() {
     playExpression('clicked', CLICK_MS);
+    // 点击小芽 → 打开概览页（快速启动 + 数据总揽）。
+    window.dispatchEvent(new CustomEvent('eidon:open-overview'));
   }
 
   // follow 形态用 inline 锁定静态帧 + 倾斜；其余形态交给 CSS 动画

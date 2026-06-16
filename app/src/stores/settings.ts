@@ -41,6 +41,7 @@ interface SettingsActions {
   setFontFamily(f: string): void;
   toggleWordWrap(): void;
   toggleLineNumbers(): void;
+  toggleShowHiddenFiles(): void;
   setLeftPanelView(view: LeftPanelView): void;
   /** 再点同视图按钮收起抽屉，点其他视图切换（ActivityBar 的 toggle 语义）。 */
   toggleLeftPanelView(view: Exclude<LeftPanelView, null>): void;
@@ -55,7 +56,6 @@ interface SettingsActions {
   togglePerWorkspaceTabs(): void;
   toggleAutoReloadExternalChanges(): void;
   toggleAutoSaveOnBlur(): void;
-  toggleRevealInFileTreeOnOpen(): void;
   markWelcomeShown(): void;
   toggleSpellcheckEnabled(): void;
   setFileTreeWidth(w: number): void;
@@ -65,9 +65,11 @@ interface SettingsActions {
   setWorkspaceCsl(p: string): void;
   toggleAutoGit(): void;
   setAutoGitDebounceSeconds(n: number): void;
+  setHistoryMaxVersionsPerFile(n: number): void;
+  setHistoryMaxCommits(n: number): void;
+  setHistoryMaxGitSizeMb(n: number): void;
   setUiFontSize(n: number): void;
   setLanguage(lang: Settings['language']): void;
-  setCustomCssPath(p: string): void;
   togglePreviewFitWidth(): void;
   toggleWritingStats(): void;
   toggleWorkspaceDailyTotal(): void;
@@ -165,6 +167,10 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     set({ showLineNumbers: !get().showLineNumbers });
     get().persist();
   },
+  toggleShowHiddenFiles() {
+    set({ showHiddenFiles: !get().showHiddenFiles });
+    get().persist();
+  },
   setLeftPanelView(view) {
     set({ leftPanelView: view });
     get().persist();
@@ -215,10 +221,6 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     set({ autoSaveOnBlur: !get().autoSaveOnBlur });
     get().persist();
   },
-  toggleRevealInFileTreeOnOpen() {
-    set({ revealInFileTreeOnOpen: !get().revealInFileTreeOnOpen });
-    get().persist();
-  },
   markWelcomeShown() {
     set({ welcomeShown: true });
     get().persist();
@@ -259,16 +261,26 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     set({ autoGitDebounceSeconds: Math.max(5, Math.min(600, Math.round(n) || 30)) });
     get().persist();
   },
+  setHistoryMaxVersionsPerFile(n) {
+    set({ historyMaxVersionsPerFile: Math.max(5, Math.min(2000, Math.round(n) || 50)) });
+    get().persist();
+  },
+  setHistoryMaxCommits(n) {
+    // 0 = 不限；否则下限 10，避免误填过小把历史几乎清空。
+    const v = Math.max(0, Math.min(100000, Math.round(n) || 0));
+    set({ historyMaxCommits: v === 0 ? 0 : Math.max(10, v) });
+    get().persist();
+  },
+  setHistoryMaxGitSizeMb(n) {
+    set({ historyMaxGitSizeMb: Math.max(0, Math.min(100000, Math.round(n) || 0)) });
+    get().persist();
+  },
   setUiFontSize(n) {
     set({ uiFontSize: Math.max(10, Math.min(20, n)) });
     get().persist();
   },
   setLanguage(lang) {
     set({ language: lang });
-    get().persist();
-  },
-  setCustomCssPath(p) {
-    set({ customCssPath: p });
     get().persist();
   },
   togglePreviewFitWidth() {

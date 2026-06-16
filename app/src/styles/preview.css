@@ -2,8 +2,7 @@
  *
  * 逐字迁移自 Preview.vue 的非 scoped <style> 块。markdown-it 注入的 HTML 经
  * dangerouslySetInnerHTML 渲染，React 无法对其挂 scoped 属性，故沿用手工以
- * `.preview-content` 前缀约束作用域；用户自定义 CSS（custom-theme.ts 注入到
- * <head> 末尾）仍可同等或更高特异性覆盖。 */
+ * `.preview-content` 前缀约束作用域。 */
 .preview-host {
   height: 100%;
   overflow: auto;

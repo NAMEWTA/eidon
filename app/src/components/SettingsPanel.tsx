@@ -9,12 +9,13 @@ import { useEffect, useState } from 'react';
 import { Icon } from './Icons';
 import { useSettingsStore, type PdfDefaults } from '../stores/settings';
 import { useToastsStore } from '../stores/toasts';
-import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import { themeLabels } from '../lib/themes';
 import { useI18n } from '../i18n';
 import { checkForUpdate, openReleaseUrl, isMasBuild } from '../lib/check-update';
 import { CommitInput } from './CommitInput';
 import { CitationPickerSettings } from './CitationPickerSettings';
+import { GithubSyncSettings } from './GithubSyncSettings';
+import { HistorySettings } from './HistorySettings';
 import { TemplateManager } from './TemplateManager';
 import { isIOS } from '../lib/platform';
 import type { Theme, ViewMode } from '../types';
@@ -112,17 +113,6 @@ export function SettingsPanel({ open, initialSection, onClose }: SettingsPanelPr
       toasts.error(String(e));
     } finally {
       setCheckingUpdate(false);
-    }
-  }
-
-  async function pickCustomCss() {
-    const path = await openFileDialog({
-      multiple: false,
-      filters: [{ name: 'CSS', extensions: ['css'] }],
-    });
-    if (path && typeof path === 'string') {
-      settings.setCustomCssPath(path);
-      useToastsStore.getState().success(t('settings.customCssLoaded'));
     }
   }
 
@@ -282,6 +272,14 @@ export function SettingsPanel({ open, initialSection, onClose }: SettingsPanelPr
 
             <section data-cat="basics">
               <label>
+                <input type="checkbox" checked={settings.showHiddenFiles} onChange={() => settings.toggleShowHiddenFiles()} />
+                {t('settings.showHiddenFiles')}
+              </label>
+              <p style={hintMt4}>{t('settings.showHiddenFilesHint')}</p>
+            </section>
+
+            <section data-cat="basics">
+              <label>
                 <input type="checkbox" checked={settings.previewFitWidth} onChange={() => settings.togglePreviewFitWidth()} />
                 {t('settings.previewFitWidth')}
               </label>
@@ -323,6 +321,12 @@ export function SettingsPanel({ open, initialSection, onClose }: SettingsPanelPr
                 {t('settings.autoGitEnabled')}
               </label>
               <p style={hintMt4}>{t('settings.autoGitHelp')}</p>
+              <HistorySettings />
+            </section>
+
+            {/* Git 远程同步（按 workspace 推/拉，支持 github/gitlab/gitea/自建） */}
+            <section data-cat="sync">
+              <GithubSyncSettings />
             </section>
 
             <section data-cat="writing">
@@ -584,14 +588,6 @@ export function SettingsPanel({ open, initialSection, onClose }: SettingsPanelPr
               <div style={advHint}>{t('settings.autoSaveOnBlurHint')}</div>
             </section>
 
-            <section data-cat="advanced">
-              <label>
-                <input type="checkbox" checked={settings.revealInFileTreeOnOpen} onChange={() => settings.toggleRevealInFileTreeOnOpen()} />
-                {t('settings.revealInFileTreeOnOpen')}
-              </label>
-              <div style={advHint}>{t('settings.revealInFileTreeOnOpenHint')}</div>
-            </section>
-
             {!isMobilePlatform && !masBuild && (
               <section data-cat="advanced">
                 <label>
@@ -605,19 +601,6 @@ export function SettingsPanel({ open, initialSection, onClose }: SettingsPanelPr
                 </div>
               </section>
             )}
-
-            <section data-cat="advanced">
-              <label>{t('settings.customCss')}</label>
-              <div className="row" style={{ gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button onClick={pickCustomCss}>{t('settings.pickCss')}</button>
-                {settings.customCssPath && <button onClick={() => settings.setCustomCssPath('')}>{t('settings.clear')}</button>}
-              </div>
-              {settings.customCssPath && (
-                <div style={{ fontSize: '11px', color: 'var(--text-faint)', wordBreak: 'break-all', marginTop: '4px' }}>
-                  {settings.customCssPath}
-                </div>
-              )}
-            </section>
 
           </div>
         </div>

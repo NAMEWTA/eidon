@@ -123,20 +123,11 @@ async function newTextFile() {
 }
 
 export async function openPath(path: string) {
-  const settings = useSettingsStore.getState();
-  const workspace = useWorkspaceStore.getState();
   const toasts = useToastsStore.getState();
 
   const ext = (path.split('.').pop() || '').toLowerCase();
   const assetKind = assetKindForExtension(ext);
   if (assetKind) {
-    if (settings.revealInFileTreeOnOpen) {
-      const parent = path.replace(/[\\/][^\\/]+$/, '');
-      if (parent && parent !== path) {
-        workspace.setFolder(parent);
-        if (useSettingsStore.getState().leftPanelView !== 'explorer') useSettingsStore.getState().setLeftPanelView('explorer');
-      }
-    }
     useTabsStore.getState().openAssetFromDisk({
       filePath: path,
       kind: assetKind,
@@ -157,14 +148,6 @@ export async function openPath(path: string) {
 
   try {
     const result = await invoke<FileReadResult>('read_file', { path });
-    // 顺序要紧：先切文件夹（onWorkspaceSwitched 只携带 dirty 标签），再加干净新标签。
-    if (settings.revealInFileTreeOnOpen) {
-      const parent = path.replace(/[\\/][^\\/]+$/, '');
-      if (parent && parent !== path) {
-        workspace.setFolder(parent);
-        if (useSettingsStore.getState().leftPanelView !== 'explorer') useSettingsStore.getState().setLeftPanelView('explorer');
-      }
-    }
     useTabsStore.getState().openFromDisk({
       filePath: path,
       content: result.content,

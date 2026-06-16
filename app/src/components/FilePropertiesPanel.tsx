@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTabsStore } from '../stores/tabs';
 import { useToastsStore } from '../stores/toasts';
 import { useFiles } from '../composables/useFiles';
+import { invoke } from '../../core/bridge/tauri';
 import { useI18n } from '../i18n';
 import {
   splitFrontMatter,
@@ -24,6 +25,7 @@ import {
   UNIVERSAL_KEYS,
 } from '../lib/frontmatter';
 import { Icon } from './Icons';
+import { TagInput } from './TagInput';
 
 interface FilePropertiesPanelProps {
   onClose?: () => void;
@@ -49,6 +51,14 @@ function normalizeDate(value: unknown): string {
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
   }
   return String(value).trim();
+}
+
+/** 标题 → 安全文件名（去掉路径分隔符与非法字符、折叠空白）。 */
+function sanitizeFileName(input: string): string {
+  return input
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function coerceExtra(text: string, original: unknown): unknown {
@@ -79,7 +89,7 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
   const isMarkdown = activeId !== '' && kind === 'text' && language === 'markdown';
 
   const [title, setTitle] = useState('');
-  const [tagsText, setTagsText] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [created, setCreated] = useState('');
   const [updated, setUpdated] = useState('');
   const [extras, setExtras] = useState<ExtraField[]>([]);
@@ -93,7 +103,7 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
     const current = useTabsStore.getState().activeTab();
     if (!current || (current.kind ?? 'text') !== 'text' || current.language !== 'markdown') {
       setTitle('');
-      setTagsText('');
+      setTags([]);
       setCreated('');
       setUpdated('');
       setExtras([]);
@@ -101,7 +111,7 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
     }
     const { data } = splitFrontMatter(current.content);
     setTitle(typeof data.title === 'string' ? data.title : data.title != null ? String(data.title) : '');
-    setTagsText(toTagsArray(data.tags).join(', '));
+    setTags(toTagsArray(data.tags));
     setCreated(normalizeDate(data.created));
     setUpdated(normalizeDate(data.updated));
     setExtras(
@@ -132,7 +142,6 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
       const now = nowISO();
       const data: Record<string, unknown> = {};
       if (title.trim()) data.title = title.trim();
-      const tags = toTagsArray(tagsText);
       if (tags.length) data.tags = tags;
 
       // 创建时间：已有值保留；无值则取当前时刻（首次初始化）
@@ -153,12 +162,41 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
 
       // 写入磁盘（未保存文件弹出「另存为」对话框；成功/取消由 saveTab 内部 toast）
       await files.saveActive();
+
+      // 标题与文件名保持一致：标题变化时同步重命名 md 文件（仅已落盘文件）。
+      const saved = useTabsStore.getState().activeTab();
+      const fp = saved?.filePath;
+      const newTitle = title.trim();
+      if (saved && fp && newTitle) {
+        const slash = Math.max(fp.lastIndexOf('/'), fp.lastIndexOf('\\'));
+        const dir = slash >= 0 ? fp.slice(0, slash + 1) : '';
+        const curName = fp.slice(slash + 1);
+        const dot = curName.lastIndexOf('.');
+        const ext = dot > 0 ? curName.slice(dot) : '.md';
+        const stem = dot > 0 ? curName.slice(0, dot) : curName;
+        const safe = sanitizeFileName(newTitle);
+        if (safe && safe !== stem) {
+          const target = `${dir}${safe}${ext}`;
+          try {
+            await invoke('fs_rename', { from: fp, to: target });
+            // 同步打开中的 tab + 通知文件树刷新（fs_rename 已连带处理 per-file 资产目录）。
+            useTabsStore.setState({
+              tabs: useTabsStore.getState().tabs.map((tb) =>
+                tb.id === saved.id ? { ...tb, filePath: target, fileName: `${safe}${ext}` } : tb,
+              ),
+            });
+            window.dispatchEvent(new CustomEvent('eidon:saved', { detail: { filePath: target } }));
+          } catch (error) {
+            useToastsStore.getState().error(String(error));
+          }
+        }
+      }
     } catch (error) {
       useToastsStore.getState().error(String(error));
     } finally {
       setSaving(false);
     }
-  }, [title, tagsText, created, extras, files]);
+  }, [title, tags, created, extras, files]);
 
   // 用 ref 持有最新 save，供原生事件监听器读取（避免闭包陈旧）。
   const saveRef = useRef(save);
@@ -219,12 +257,7 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
                 <span className="node-props__field-type">#</span>
                 {t('fileProps.field.tags')}
               </span>
-              <input
-                type="text"
-                value={tagsText}
-                onChange={(e) => setTagsText(e.target.value)}
-                placeholder={t('fileProps.tagsPlaceholder')}
-              />
+              <TagInput value={tags} onChange={setTags} placeholder={t('fileProps.tagsPlaceholder')} />
             </label>
 
             <label className="node-props__field">

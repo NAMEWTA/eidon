@@ -116,6 +116,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
   function buildExtensions() {
     return buildEditorExtensions({
       tab: tabRef.current,
+      getTab: () => tabRef.current,
       settings: snapshotSettings(),
       compartments: compsRef.current,
       flags: { focusMode, typewriterMode, spellCheck },
@@ -238,13 +239,18 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
   useEffect(() => {
     reconfigure(() => [
       compsRef.current.lang.reconfigure(tab.language === 'markdown' ? [markdownExt()] : []),
-      compsRef.current.rich.reconfigure(richExtensionsFor(tabRef.current, { editorRender })),
+      compsRef.current.rich.reconfigure(richExtensionsFor(() => tabRef.current, { editorRender })),
     ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.language]);
   useEffect(() => {
-    reconfigure(() => compsRef.current.rich.reconfigure(richExtensionsFor(tabRef.current, { editorRender })));
+    reconfigure(() => compsRef.current.rich.reconfigure(richExtensionsFor(() => tabRef.current, { editorRender })));
   }, [editorRender]);
+  // 文件路径变化（如 untitled 首次存盘）→ 重建 rich，让 live 图片块按新路径重新解析渲染（#9）。
+  useEffect(() => {
+    reconfigure(() => compsRef.current.rich.reconfigure(richExtensionsFor(() => tabRef.current, { editorRender })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.filePath]);
   useEffect(() => {
     const view = viewRef.current;
     if (!view || tabRef.current.language !== 'markdown') return;

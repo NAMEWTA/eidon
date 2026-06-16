@@ -20,8 +20,9 @@ import { useTabsStore } from '../stores/tabs';
 import { useToastsStore } from '../stores/toasts';
 import { useNodesStore } from '../stores/nodes';
 import { useTemplatesStore } from '../stores/templates';
+import { useSettingsStore } from '../stores/settings';
 import { useI18n } from '../i18n';
-import { canCreateContentInScannedL3 } from '../lib/eidon-paths';
+import { canCreateContentInScannedL3, findEnclosingL3Path } from '../lib/eidon-paths';
 import {
   canDragFileTreeEntry,
   canDropIntoFileTreeEntry,
@@ -33,6 +34,29 @@ import {
 import { deriveTemplateVisual, templateDisplayName, type TemplateVisualIdentity } from '../lib/template-visuals';
 import { NodeCreateDialog } from './NodeCreateDialog';
 import { TodoCreateDialog } from './TodoCreateDialog';
+
+/** react-arborist 内部 TreeProvider 无条件创建 DndProvider(HTML5Backend)，即使设置
+ *  disableDrag/disableDrop 也照建不误。快速卸载→重挂时旧后端异步清理与新后端创建竞态，
+ *  抛 "Cannot have two HTML5 backends at the same time"。这里提供一个模块级单例桩后端，
+ *  确保无论 Tree 挂载多少次，始终复用同一个无操作后端（文件树拖拽由原生 HTML5 事件实现）。
+ *  react-dnd 是 react-arborist 的依赖，非本项目直接依赖；此处用 any 绕过类型导入。 */
+const noopDndBackend = (() => {
+  const noop = () => {};
+  const unsub = () => {};
+  let _instance: ReturnType<typeof noopDndBackend> | null = null;
+  return (): any => {
+    if (!_instance) {
+      _instance = {
+        setup: noop,
+        teardown: noop,
+        connectDragSource: () => unsub,
+        connectDragPreview: () => unsub,
+        connectDropTarget: () => unsub,
+      } as any;
+    }
+    return _instance;
+  };
+})();
 
 interface DirEntry {
   name: string;
@@ -73,6 +97,8 @@ const SYSTEM_ENTRY_NAMES = new Set(['.eidon', '.eidon-sync', '.eidon-encrypted',
 async function loadDir(path: string): Promise<{ children: ExplorerEntry[]; truncated: boolean }> {
   try {
     const entries = await invoke<DirEntry[]>('list_dir', { path, includeHidden: true });
+    // 系统项始终隐藏；其它 `.` 开头项按「显示隐藏文件」设置过滤（默认隐藏 .gitignore 等）。
+    const showHidden = useSettingsStore.getState().showHiddenFiles;
     let truncated = false;
     const children: ExplorerEntry[] = [];
     for (const entry of entries) {
@@ -81,6 +107,7 @@ async function loadDir(path: string): Promise<{ children: ExplorerEntry[]; trunc
         continue;
       }
       if (SYSTEM_ENTRY_NAMES.has(entry.name)) continue;
+      if (!showHidden && entry.name.startsWith('.')) continue;
       children.push({
         id: entry.path,
         name: entry.name,
@@ -296,6 +323,9 @@ function ExplorerNode({
       ) : (
         <span className="ftree__name">{node.data.name}</span>
       )}
+      {/* 弹性填充放在文件名之后、徽标之前：吃掉剩余空间，把层级/模板/违规徽标整体推到右边缘
+          （也是双击重命名的命中区）。 */}
+      <span className="ftree__row-fill" onDoubleClick={() => tree.edit(node.id)} />
       {structureNode && (
         <>
           <span
@@ -319,7 +349,6 @@ function ExplorerNode({
         </span>
       ))}
       {node.data.truncated && <span className="ftree__badge">10k+</span>}
-      <span className="ftree__row-fill" onDoubleClick={() => tree.edit(node.id)} />
     </div>
   );
 }
@@ -331,6 +360,7 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
   const recentFolders = useWorkspaceStore((state) => state.recentFolders);
   const scannedNodes = useNodesStore((state) => state.nodes);
   const templates = useTemplatesStore((state) => state.templates);
+  const showHiddenFiles = useSettingsStore((state) => state.showHiddenFiles);
 
   const [rootName, setRootName] = useState('');
   const [treeData, setTreeData] = useState<ExplorerEntry[]>([]);
@@ -348,6 +378,8 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
   const [clipboard, setClipboard] = useState<TreeClipboard | null>(null);
   const [moveDialogEntry, setMoveDialogEntry] = useState<ExplorerEntry | null>(null);
   const [moveFilter, setMoveFilter] = useState('');
+  const [nameDialog, setNameDialog] = useState<{ kind: 'file' | 'folder'; parentPath: string } | null>(null);
+  const [nameInput, setNameInput] = useState('');
   const [normalizing, setNormalizing] = useState(false);
   const treeWrapRef = useRef<HTMLDivElement | null>(null);
   const ctxRef = useRef<HTMLDivElement | null>(null);
@@ -542,7 +574,7 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     return out;
   }
 
-  async function refreshRoot(options: { showLoading?: boolean } = {}) {
+  async function refreshRoot(options: { showLoading?: boolean } = { showLoading: false }) {
     const showLoading = options.showLoading ?? true;
     const path = useWorkspaceStore.getState().currentFolder;
     if (!path) {
@@ -599,7 +631,7 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     flushPendingTreeOpen();
   }
 
-  function scheduleRefresh(options: { showLoading?: boolean } = {}) {
+  function scheduleRefresh(options: { showLoading?: boolean } = { showLoading: false }) {
     if (refreshDebounce.current) clearTimeout(refreshDebounce.current);
     refreshDebounce.current = setTimeout(() => {
       refreshDebounce.current = null;
@@ -692,31 +724,60 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     setCtx(null);
   }
 
-  async function createFile(parent: string) {
+  // 打开「新建文件/文件夹」应用内对话框（Tauri WebView 不支持 window.prompt，旧实现静默失败）。
+  async function openCreateFileDialog(parent: string) {
     closeCtx();
-    const raw = window.prompt(t('explorer.newFile'), 'untitled.md');
-    const name = raw?.trim();
-    if (!name) return;
-    const finalName = /\.[a-z0-9]+$/i.test(name) ? name : `${name}.md`;
-    const target = joinPath(parent, finalName);
-    try {
-      await invoke('fs_create_file', { path: target, content: '' });
-      scheduleRefresh();
-      await files.openPath(target);
-    } catch (error) {
-      useToastsStore.getState().error(String(error));
-    }
+    const def = await uniqueChildName(parent, 'untitled.md');
+    setNameInput(def);
+    setNameDialog({ kind: 'file', parentPath: parent });
   }
 
-  async function createFolder(parent: string) {
+  async function openCreateFolderDialog(parent: string) {
     closeCtx();
-    const name = window.prompt(t('explorer.newFolder'), 'New Folder')?.trim();
-    if (!name) return;
-    try {
-      await invoke('fs_create_dir', { path: joinPath(parent, name) });
-      scheduleRefresh();
-    } catch (error) {
-      useToastsStore.getState().error(String(error));
+    const def = await uniqueChildName(parent, 'New Folder');
+    setNameInput(def);
+    setNameDialog({ kind: 'folder', parentPath: parent });
+  }
+
+  // 「+」头部按钮：在当前激活（文件树选中项，回退当前编辑 tab）所属 L3 下新建 md 文件。
+  function newFileInActiveL3() {
+    const root = useWorkspaceStore.getState().currentFolder;
+    if (!root) return;
+    const activeAbs = selection ?? useTabsStore.getState().activeTab()?.filePath ?? null;
+    if (!activeAbs) {
+      useToastsStore.getState().info(t('explorer.newFileNeedL3'));
+      return;
+    }
+    const l3Rel = findEnclosingL3Path(relFor(activeAbs), l3NodePaths);
+    if (!l3Rel) {
+      useToastsStore.getState().info(t('explorer.newFileNeedL3'));
+      return;
+    }
+    void openCreateFileDialog(joinPath(root, l3Rel));
+  }
+
+  async function submitNameDialog() {
+    const dialog = nameDialog;
+    const raw = nameInput.trim();
+    setNameDialog(null);
+    if (!dialog || !raw) return;
+    if (dialog.kind === 'file') {
+      const finalName = /\.[a-z0-9]+$/i.test(raw) ? raw : `${raw}.md`;
+      const target = joinPath(dialog.parentPath, finalName);
+      try {
+        await invoke('fs_create_file', { path: target, content: '' });
+        scheduleRefresh();
+        await files.openPath(target);
+      } catch (error) {
+        useToastsStore.getState().error(String(error));
+      }
+    } else {
+      try {
+        await invoke('fs_create_dir', { path: joinPath(dialog.parentPath, raw) });
+        scheduleRefresh();
+      } catch (error) {
+        useToastsStore.getState().error(String(error));
+      }
     }
   }
 
@@ -1000,9 +1061,20 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
   })();
 
   useEffect(() => {
-    void refreshRoot();
+    void refreshRoot({ showLoading: true });   // 仅首次加载显示 loading 占位
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentFolder]);
+
+  // 「显示隐藏文件」开关变化 → 重新加载文件树（loadDir 据此过滤 `.` 开头项）。
+  const didMountHidden = useRef(false);
+  useEffect(() => {
+    if (!didMountHidden.current) {
+      didMountHidden.current = true;
+      return;
+    }
+    scheduleRefresh({ showLoading: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHiddenFiles]);
 
   useEffect(() => {
     openIdsRef.current = openIds;
@@ -1106,13 +1178,11 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
           )}
           <button
             className="ftree__hbtn"
-            title={t('explorer.newL1Node')}
-            onClick={() => {
-              if (currentFolder) openCreateNodeDialog(currentFolder);
-            }}
+            title={t('explorer.newFileHeader')}
+            onClick={newFileInActiveL3}
             disabled={!currentFolder}
           >
-            <Icon name="insert" size={13} />
+            <Icon name="new-text" size={13} />
           </button>
           <button className="ftree__hbtn" title={t('explorer.refresh')} onClick={() => scheduleRefresh()} disabled={!currentFolder}>
             <Icon name="refresh" size={13} />
@@ -1180,8 +1250,7 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
           {/*
             仅「首次加载（尚无树数据）」时显示加载占位；一旦有数据，刷新（新建/删除/重命名/移动/粘贴
             等都会 scheduleRefresh）期间保持 <Tree> 挂载、就地更新 data——绝不 unmount→remount。
-            react-arborist 每次挂载都会建一个 react-dnd HTML5 后端，快速重挂会与旧后端清理竞态，
-            抛 "Cannot have two HTML5 backends at the same time" 并（无 ErrorBoundary 时）白屏。
+            模块级 noopDndBackend 桩后端作为主防线，阻止 react-arborist 多次创建 HTML5Backend。
           */}
           {rootLoading && treeData.length === 0 ? (
             <div className="ftree__loading">
@@ -1203,8 +1272,9 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
                 openByDefault={false}
                 selection={selection}
                 disableMultiSelection
+                dndBackend={noopDndBackend}  /* 单例桩后端 — 防 “Cannot have two HTML5 backends” 崩溃 */
                 /* react-arborist 自带 DnD 整体停用：拖拽移动由行上的原生 HTML5 事件实现
-                   （此前两套 DnD 并存导致“只有拖拽动画、不执行实际移动”） */
+                   （此前两套 DnD 并存导致”只有拖拽动画、不执行实际移动”） */
                 disableDrag
                 disableDrop
                 onSelect={(nodes) => setSelection(nodes[0]?.id)}
@@ -1281,10 +1351,10 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
           {canCreateContent(ctx.node) && (
             <>
               {ctxStructureNode && <div className="ftree__ctx-sep" />}
-              <button className="ftree__ctx-item" onClick={() => void createFile(ctx.node!.data.path)}>
+              <button className="ftree__ctx-item" onClick={() => void openCreateFileDialog(ctx.node!.data.path)}>
                 <Icon name="new-text" size={14} /> {t('explorer.newFile')}
               </button>
-              <button className="ftree__ctx-item" onClick={() => void createFolder(ctx.node!.data.path)}>
+              <button className="ftree__ctx-item" onClick={() => void openCreateFolderDialog(ctx.node!.data.path)}>
                 <Icon name="folder-plus" size={14} /> {t('explorer.newFolder')}
               </button>
               <div className="ftree__ctx-sep" />
@@ -1375,6 +1445,45 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
               {moveTargets.length === 0 && (
                 <div className="ftree__move-empty">{t('explorer.moveToEmpty')}</div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新建文件/文件夹输入对话框（替代 Tauri WebView 不支持的 window.prompt） */}
+      {nameDialog && (
+        <div className="node-dialog__backdrop" onClick={() => setNameDialog(null)}>
+          <div className="node-dialog ftree__name-dialog" onClick={(event) => event.stopPropagation()}>
+            <div className="ftree__move-head">
+              <span className="ftree__move-title">
+                {nameDialog.kind === 'file' ? t('explorer.newFile') : t('explorer.newFolder')}
+              </span>
+              <button className="rs-pane-close" onClick={() => setNameDialog(null)}>
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <div className="ftree__name-dialog-body">
+              <input
+                autoFocus
+                value={nameInput}
+                spellCheck={false}
+                onChange={(event) => setNameInput(event.target.value)}
+                onFocus={(event) => {
+                  // 选中文件名主干（不含扩展名），便于直接改名。
+                  const dot = nameInput.lastIndexOf('.');
+                  event.currentTarget.setSelectionRange(0, dot > 0 ? dot : nameInput.length);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') setNameDialog(null);
+                  if (event.key === 'Enter') void submitNameDialog();
+                }}
+              />
+            </div>
+            <div className="ftree__name-dialog-actions">
+              <button onClick={() => setNameDialog(null)}>{t('explorer.nameDialogCancel')}</button>
+              <button className="primary-btn" disabled={!nameInput.trim()} onClick={() => void submitNameDialog()}>
+                {t('explorer.nameDialogConfirm')}
+              </button>
             </div>
           </div>
         </div>

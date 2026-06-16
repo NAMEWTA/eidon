@@ -36,6 +36,8 @@ const makeGateway = (): SnapshotGateway => ({
   })),
   fileAtVersion: vi.fn(async () => "# restored"),
   rollbackFile: vi.fn(async () => undefined),
+  repoSize: vi.fn(async () => 1234567),
+  pruneHistory: vi.fn(async () => ({ commits_before: 10, commits_after: 5, size_after: 600000, gc_ran: true })),
 });
 
 describe("core/snapshots", () => {

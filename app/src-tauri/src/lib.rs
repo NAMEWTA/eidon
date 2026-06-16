@@ -21,6 +21,10 @@ pub mod git_history;
 #[cfg(not(target_os = "android"))]
 #[path = "git/git_ops.rs"]
 pub mod git_ops;
+// 历史版本上限：repo 体积报告 + 破坏性历史修剪（保留最近 N 提交 + best-effort gc，见 ADR-0023）。
+#[cfg(not(target_os = "android"))]
+#[path = "git/git_prune.rs"]
+pub mod git_prune;
 // v2.5 F6 CJK proofread — flags common Chinese typos with one-click fixes.
 #[path = "knowledge/cjk_proofread.rs"]
 pub mod cjk_proofread;
@@ -139,6 +143,10 @@ pub fn run() {
             git_ops::git_restore_head,
             #[cfg(not(target_os = "android"))]
             git_ops::git_delete_branch,
+            #[cfg(not(target_os = "android"))]
+            git_prune::git_repo_size,
+            #[cfg(not(target_os = "android"))]
+            git_prune::git_prune_history,
             cjk_proofread::cjk_proofread,
             #[cfg(not(target_os = "android"))]
             github_sync::github_set_token,
