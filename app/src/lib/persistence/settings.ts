@@ -244,8 +244,6 @@ const RETIRED_KEYS = [
   'dailyNotesFolder',
   'dailyNotesFormat',
   '_rsPanesBeforeHide',
-  'revealInFileTreeOnOpen',
-  'customCssPath',
 ] as const;
 
 /** raw → 校验/迁移后的 Settings。 */

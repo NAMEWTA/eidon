@@ -29,13 +29,13 @@
   --bg-elev: #faf9f5;     /* Ivory：上浮卡片与浮层 */
   --bg-hover: #fdfcf8;    /* hover 向暖白提亮（不用纯白，DESIGN.md Don't） */
   --bg-active: #e8e6dc;   /* Warm Sand：选中/按下的交互面 */
-  --border: #f0eee6;      /* Border Cream */
+  --border: #d5d3cb;      /* Border Cream（加强对比，避免在 chrome 底色上不可见） */
   --text: #141413;        /* Anthropic Near Black */
-  --text-muted: #5e5d59;  /* Olive Gray */
+  --text-muted: #4a4945;  /* Olive Gray（加深以提高亮底可读性） */
   /* 次级文字派生自主 token；加重描边取 Border Warm */
   --text-secondary: color-mix(in oklab, var(--text) 72%, var(--text-muted));
-  --border-strong: #e8e6dc; /* Border Warm */
-  --text-faint: #87867f;  /* Stone Gray */
+  --border-strong: #c8c6be; /* Border Warm（比 --border 更深，形成层级） */
+  --text-faint: #6e6d67;  /* Stone Gray（加深以提高可读性） */
   --accent: #c96442;      /* Terracotta Brand */
   --accent-fg: #faf9f5;   /* Ivory：品牌按钮文字 */
   --danger: #b53333;      /* Error Crimson */
@@ -93,17 +93,17 @@
   --md-em: oklch(0.35 0.012 60);
   --md-link: oklch(0.5 0.13 40);
   --md-url: oklch(0.55 0.11 50);
-  --md-code: oklch(0.5 0.14 28);
+  --md-code: oklch(0.42 0.14 28);
   --md-code-bg: oklch(0.94 0.012 80);
-  --md-quote: oklch(0.45 0.012 60);
+  --md-quote: oklch(0.35 0.012 60);
   --md-list: oklch(0.55 0.12 45);
   --md-hr: oklch(0.82 0.012 76);
 
   /* Code block syntax (light) — gentle, not garish */
   --syn-keyword: #a626a4;
-  --syn-string: #50a14f;
+  --syn-string: #2d7a2d;
   --syn-number: #986801;
-  --syn-comment: #a0a1a7;
+  --syn-comment: #787980;
   --syn-function: #4078f2;
   --syn-variable: #383a42;
   --syn-type: #c18401;
@@ -351,7 +351,10 @@ button:disabled {
   font-family: var(--font-mono);
 }
 
-.contains-task-list {
+/* 仅对无序列表去除项目符号；有序列表保留序号（Bug 10）。
+   假设 markdown 渲染的 task list 始终为 <ul>（GitHub Flavored Markdown 规范）；
+   若渲染器改用其他元素包裹 task list，需同步更新此选择器。 */
+ul.contains-task-list {
   list-style: none;
   padding-left: 1.25rem;
 }

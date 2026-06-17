@@ -9,8 +9,8 @@
  * React/Zustand，保证可在 Node 下纯函数式测试「设置 → 扩展集合」的分支。
  */
 import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection } from '@codemirror/view';
-import { Compartment, type Extension } from '@codemirror/state';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { Compartment, EditorState, Prec, Transaction, type Extension } from '@codemirror/state';
+import { defaultKeymap, history, historyKeymap, indentLess, indentMore, indentWithTab, insertTab } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches, search } from '@codemirror/search';
 import { syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching } from '@codemirror/language';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -28,7 +28,7 @@ import { yaml } from '@codemirror/lang-yaml';
 import { sql } from '@codemirror/lang-sql';
 import { xml } from '@codemirror/lang-xml';
 import { vim } from '@replit/codemirror-vim';
-import { autocompletion } from '@codemirror/autocomplete';
+import { autocompletion, completionStatus } from '@codemirror/autocomplete';
 import { cmThemeFor } from './themes';
 import { buildEditorFontStack } from './persistence/settings';
 import type { Tab, Theme, EditorRender } from '../types';
@@ -42,12 +42,13 @@ import { focusModeExtension, typewriterModeExtension } from './cm-focus-mode';
 import { wikilinkExtension, wikilinkComplete } from './cm-wikilink';
 import { tagAutocompleteExtension, tagComplete } from './cm-tag-autocomplete';
 import { citationsExtension, citationCompleteSource } from './cm-citations';
-import { slashCommandsExtension } from './cm-slash-commands';
+import { slashCommandsExtension, isSlashPopupOpen } from './cm-slash-commands';
 import { spellcheckExtension } from './cm-spellcheck';
 import { spellcheckTheme } from './cm-spellcheck-theme';
 import { taskListExtension } from './cm-task-list';
 import { sessionRestoreExtension } from './cm-session-restore';
 import { frontmatterMarkdownExtension, frontmatterDecorations } from './cm-frontmatter';
+import { resolveDict, type Lang } from '../i18n/translate';
 
 export const codeLanguages = [
   LanguageDescription.of({ name: 'javascript', alias: ['js', 'jsx'], support: javascript({ jsx: true }) }),
@@ -78,6 +79,7 @@ export interface EditorCompartments {
   typewriter: Compartment;
   vim: Compartment;
   slash: Compartment;
+  phrases: Compartment;
 }
 
 export function makeEditorCompartments(): EditorCompartments {
@@ -93,6 +95,7 @@ export function makeEditorCompartments(): EditorCompartments {
     typewriter: new Compartment(),
     vim: new Compartment(),
     slash: new Compartment(),
+    phrases: new Compartment(),
   };
 }
 
@@ -109,6 +112,7 @@ export interface EditorBuildSettings {
   editorRender: EditorRender;
   attachmentMode: 'shared' | 'per-file';
   assetsDirName: string;
+  language: Lang;
 }
 
 export interface EditorHandlers {
@@ -147,6 +151,7 @@ export function markdownExt(): Extension {
       extensions: [frontmatterMarkdownExtension],
     }),
     frontmatterDecorations(),
+    markdownListKeymap,
   ];
 }
 
@@ -215,6 +220,282 @@ export function fontSizeTheme(px: number, family: string): Extension {
   });
 }
 
+/** 从 i18n 字典构建 CodeMirror EditorState.phrases 对象，用于翻译搜索面板等 UI。 */
+export function buildPhrases(lang: Lang): Record<string, string> {
+  const dict = resolveDict(lang);
+  const cmFind = (dict as Record<string, unknown>).cmFind as Record<string, string> | undefined;
+  if (!cmFind) return {};
+  // @codemirror/search 用英文原文作 phrase key（state.phrase("Find") 等）。
+  return {
+    Find: cmFind.find,
+    Replace: cmFind.replace,
+    next: cmFind.next,
+    previous: cmFind.previous,
+    all: cmFind.all,
+    'match case': cmFind.matchCase,
+    regexp: cmFind.regexp,
+    'by word': cmFind.byWord,
+    replace: cmFind.replaceOne,
+    'replace all': cmFind.replaceAll,
+    close: cmFind.close,
+    'Go to line': cmFind.goToLine,
+    go: cmFind.go,
+    'current match': cmFind.currentMatch,
+    'on line': cmFind.onLine,
+    'replaced match on line $': cmFind.replacedMatch,
+    'replaced $ matches': cmFind.replacedAll,
+  };
+}
+
+interface ParsedListLine {
+  /** 行首空白长度（列）。 */
+  indent: number;
+  /** 是否有序列表（`1.` / `1)`）。 */
+  ordered: boolean;
+  /** 有序列表的当前序号（无序为 0）。 */
+  number: number;
+  /** 有序列表分隔符（`.` 或 `)`）。 */
+  sep: string;
+  /** 无序列表的 bullet 字符（`-`/`*`/`+`），有序为 ''。 */
+  bullet: string;
+  /** 是否任务项（`- [ ]` / `- [x]`）。 */
+  task: boolean;
+  /** marker 结束列（indent + 数字 + 分隔符），相对行首。无序为 indent+1。 */
+  markerEnd: number;
+  /** marker 内容起始列 = indent + marker + 其后空白；子项缩进对齐到此列才视为嵌套。
+   *  注意：任务项的 `[ ]` 属于内容，contentCol 仍只到 bullet 之后（如 `- ` → 2）。 */
+  contentCol: number;
+  /** 实际文本起始列：有序/普通无序 == contentCol；任务项跳过 `[ ] ` 复选框。 */
+  textCol: number;
+}
+
+/**
+ * 解析一行的列表 marker。content 列对齐是 CommonMark 嵌套的关键：markdown-it
+ * （预览）与 lezer-markdown（编辑器）都要求子项缩进到父项内容起始列才视为嵌套，
+ * 否则会被解析成同级，导致序号「拍平」（预览 1./2.）且 Enter 续编层级错乱。
+ * 注意：任务列表 `- [ ] x` 的 marker 仅 `- `，`[ ]` 属于内容，故对齐到 col 2。
+ */
+function parseListLine(text: string): ParsedListLine | null {
+  let m = /^(\s*)(\d+)([.)])(\s+)/.exec(text);
+  if (m) {
+    const indent = m[1].length;
+    const contentCol = m[0].length;
+    return {
+      indent,
+      ordered: true,
+      number: parseInt(m[2], 10),
+      sep: m[3],
+      bullet: '',
+      task: false,
+      markerEnd: indent + m[2].length + 1,
+      contentCol,
+      textCol: contentCol,
+    };
+  }
+  m = /^(\s*)([-*+])(\s+)/.exec(text);
+  if (m) {
+    const indent = m[1].length;
+    const contentCol = m[0].length;
+    const taskM = /^(\[[ xX]\])(\s+)/.exec(text.slice(contentCol));
+    return {
+      indent,
+      ordered: false,
+      number: 0,
+      sep: '',
+      bullet: m[2],
+      task: taskM != null,
+      markerEnd: indent + 1,
+      contentCol,
+      textCol: taskM ? contentCol + taskM[0].length : contentCol,
+    };
+  }
+  return null;
+}
+
+/**
+ * markdown 列表 Enter：在列表项上回车时接管换行逻辑——
+ *  - 非空项：另起一行生成同级 marker（有序续编 +1，任务项重置为 `- [ ] `）。
+ *  - 空项：缩进 > 0 则「升一级」并续编为父级的下一序号（一次回车出一层）；
+ *    顶层空项则清空当前行退出列表。
+ * 当存在自动补全弹窗或斜杠命令弹窗时让出 Enter（返回 false 由它们处理）。
+ */
+function listEnter(view: EditorView): boolean {
+  const { state } = view;
+  if (completionStatus(state) === 'active') return false;
+  if (isSlashPopupOpen(state)) return false;
+
+  const sel = state.selection.main;
+  if (!sel.empty) return false;
+
+  const line = state.doc.lineAt(sel.head);
+  const cur = parseListLine(line.text);
+  if (!cur) return false;
+
+  const text = state.doc.sliceString(line.from + cur.textCol, line.to);
+  const isEmpty = text.trim() === '';
+
+  if (isEmpty) {
+    if (cur.indent > 0) {
+      // 升一级：以最近的「上一级」列表行为父，续编为其下一序号 / 沿用其 bullet。
+      let parent: ParsedListLine | null = null;
+      for (let n = line.number - 1; n >= 1; n--) {
+        const pl = state.doc.line(n);
+        if (pl.text.trim() === '') break;
+        const pm = parseListLine(pl.text);
+        if (!pm) break;
+        if (pm.indent < cur.indent) {
+          parent = pm;
+          break;
+        }
+      }
+      const newIndent = parent ? parent.indent : Math.max(0, cur.indent - 2);
+      let marker: string;
+      if (parent) {
+        marker = parent.ordered ? `${parent.number + 1}${parent.sep} ` : `${parent.bullet} `;
+      } else {
+        marker = cur.ordered ? `1${cur.sep} ` : `${cur.bullet} `;
+      }
+      const insert = ' '.repeat(newIndent) + marker;
+      view.dispatch(state.update({
+        changes: { from: line.from, to: line.to, insert },
+        selection: { anchor: line.from + insert.length },
+        scrollIntoView: true,
+        userEvent: 'input',
+      }));
+      return true;
+    }
+    // 顶层空项：清空当前行，退出列表。
+    view.dispatch(state.update({
+      changes: { from: line.from, to: line.to, insert: '' },
+      selection: { anchor: line.from },
+      scrollIntoView: true,
+      userEvent: 'input',
+    }));
+    return true;
+  }
+
+  // 非空项：另起一行生成同级 marker。
+  let marker: string;
+  if (cur.ordered) {
+    marker = `${cur.number + 1}${cur.sep} `;
+  } else if (cur.task) {
+    marker = `${cur.bullet} [ ] `;
+  } else {
+    marker = `${cur.bullet} `;
+  }
+  const insert = '\n' + ' '.repeat(cur.indent) + marker;
+  view.dispatch(state.update({
+    changes: { from: sel.head, insert },
+    selection: { anchor: sel.head + insert.length },
+    scrollIntoView: true,
+    userEvent: 'input',
+  }));
+  return true;
+}
+
+/**
+ * Tab 缩进 markdown 列表行：把当前项变为「上一个同级项」的子项——缩进对齐到该
+ * 父项的内容起始列（保证 CommonMark 嵌套），有序列表则续编为目标层级的正确序号。
+ * 若当前行不是列表项、或前面没有可作为父项的同级项，则返回 false（交还兜底处理）。
+ */
+function tabIndentListLine(state: EditorState, dispatch: (tr: Transaction) => void): boolean {
+  const line = state.doc.lineAt(state.selection.main.head);
+  const cur = parseListLine(line.text);
+  if (!cur) return false;
+
+  // 向上找最近的「父项」：第一条 indent <= 当前缩进的非空列表行。
+  let parent: ParsedListLine | null = null;
+  for (let n = line.number - 1; n >= 1; n--) {
+    const pl = state.doc.line(n);
+    if (pl.text.trim() === '') break;
+    const pm = parseListLine(pl.text);
+    if (!pm) break;
+    if (pm.indent <= cur.indent) {
+      parent = pm;
+      break;
+    }
+  }
+  // 仅当存在同级的上一项时才允许缩进（嵌套需要一个父项承接）。
+  if (!parent || parent.indent !== cur.indent) return false;
+
+  const targetIndent = parent.contentCol;
+  const addIndent = targetIndent - cur.indent;
+  if (addIndent <= 0) return false;
+
+  if (cur.ordered) {
+    // 计算目标层级下应有的序号：扫描父项与当前行之间、缩进恰为 targetIndent 的
+    // 已有同级有序项，取其序号 +1；若无则为 1（首个子项）。
+    let newNumber = 1;
+    for (let n = line.number - 1; n >= 1; n--) {
+      const pl = state.doc.line(n);
+      if (pl.text.trim() === '') break;
+      const pm = parseListLine(pl.text);
+      if (!pm) break;
+      if (pm.indent <= cur.indent) break;
+      if (pm.indent === targetIndent && pm.ordered) {
+        newNumber = pm.number + 1;
+        break;
+      }
+    }
+    // 单次 change：用「新缩进 + 新序号 + 原分隔符」替换原「缩进 + marker」。
+    dispatch(state.update({
+      changes: {
+        from: line.from,
+        to: line.from + cur.markerEnd,
+        insert: ' '.repeat(targetIndent) + newNumber + cur.sep,
+      },
+      scrollIntoView: true,
+      userEvent: 'input',
+    }));
+    return true;
+  }
+
+  dispatch(state.update({
+    changes: { from: line.from, insert: ' '.repeat(addIndent) },
+    scrollIntoView: true,
+    userEvent: 'input',
+  }));
+  return true;
+}
+
+/**
+ * Markdown 列表按键：高优先级。
+ *  - Enter：列表项内接管换行（续编/升级/退出，见 listEnter）。
+ *  - Tab：列表项缩进对齐到父项内容列；兜底 insertTab，防止焦点跳出编辑器。
+ */
+const markdownListKeymap = Prec.highest(
+  keymap.of([
+    {
+      key: 'Enter',
+      run: (view) => listEnter(view),
+    },
+    {
+      key: 'Tab',
+      run: (view) => {
+        if (tabIndentListLine(view.state, view.dispatch)) {
+          view.focus();
+          return true;
+        }
+        if (indentMore({ state: view.state, dispatch: view.dispatch })) {
+          view.focus();
+          return true;
+        }
+        if (insertTab({ state: view.state, dispatch: view.dispatch })) {
+          view.focus();
+          return true;
+        }
+        return false;
+      },
+      shift: (view) => {
+        const ok = indentLess({ state: view.state, dispatch: view.dispatch });
+        if (ok) view.focus();
+        return ok;
+      },
+      preventDefault: true,
+    },
+  ]),
+);
+
 export function slashExt(handlers: EditorHandlers): Extension {
   if (!handlers.slashEnabled()) return [];
   return slashCommandsExtension({
@@ -241,6 +522,74 @@ export function buildEditorExtensions(ctx: EditorBuildCtx): Extension[] {
     highlightActiveLine(),
     highlightSelectionMatches(),
     search({ top: true }),
+    c.phrases.of(EditorState.phrases.of(buildPhrases(settings.language))),
+    /* 搜索/替换面板样式（⌘F / Ctrl+F），匹配 EIDON 主题。
+       面板文字通过 EditorState.phrases facet 实现 i18n，
+       翻译定义在 i18n 字典的 cmFind 段中。 */
+    EditorView.theme({
+      '.cm-panels': {
+        backgroundColor: 'var(--bg-chrome)',
+        borderBottom: '1px solid var(--border)',
+        padding: '4px 8px',
+        color: 'var(--text)',
+      },
+      '.cm-panels.cm-panels-top': {
+        borderBottom: '1px solid var(--border)',
+        borderTop: 'none',
+      },
+      '.cm-panel.cm-search': {
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '2px 0',
+      },
+      '.cm-panels input': {
+        backgroundColor: 'var(--bg-elev)',
+        color: 'var(--text)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--r-sm)',
+        padding: '3px 8px',
+        fontFamily: 'var(--font-ui)',
+        fontSize: '13px',
+        outline: 'none',
+      },
+      '.cm-panels input:focus': {
+        borderColor: 'var(--accent)',
+      },
+      '.cm-panels button': {
+        backgroundColor: 'var(--bg-elev)',
+        color: 'var(--text)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--r-sm)',
+        padding: '2px 10px',
+        cursor: 'pointer',
+        fontFamily: 'var(--font-ui)',
+        fontSize: '12px',
+        lineHeight: '1.6',
+      },
+      '.cm-panels button:hover': {
+        backgroundColor: 'var(--bg-hover)',
+      },
+      '.cm-panels button:active': {
+        backgroundColor: 'var(--bg-active)',
+      },
+      '.cm-panels button[name="close"]': {
+        border: 'none',
+        color: 'var(--text-muted)',
+        fontSize: '14px',
+        padding: '0 4px',
+      },
+      '.cm-panels label': {
+        color: 'var(--text-muted)',
+        fontSize: '12px',
+        marginRight: '4px',
+      },
+      '.cm-panels input[type="checkbox"]': {
+        accentColor: 'var(--accent)',
+        marginRight: '2px',
+      },
+    }),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
     c.lineNum.of(lineNumberExt(settings.showLineNumbers)),

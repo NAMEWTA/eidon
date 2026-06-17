@@ -77,6 +77,12 @@ interface SlashState {
 }
 
 const setSlashState = StateEffect.define<SlashState | null>();
+const scrollSlashSelectionIntoView = StateEffect.define<true>();
+
+/** 斜杠命令弹窗当前是否打开（供编辑器其它 keymap 让出 Enter/Tab 等按键）。 */
+export function isSlashPopupOpen(state: EditorState): boolean {
+  return state.field(slashStateField, false) != null;
+}
 
 const slashStateField = StateField.define<SlashState | null>({
   create: () => null,
@@ -124,8 +130,21 @@ const slashStateField = StateField.define<SlashState | null>({
   provide: (f) =>
     showTooltip.compute([f], (state) => {
       const v = state.field(f);
-      if (!v) return null;
-      return buildTooltip(v);
+      if (!v) {
+        activeTooltip = null;
+        return null;
+      }
+      // 关键：当弹窗在同一触发位置开着时，必须返回**同一个** Tooltip 对象引用。
+      // CodeMirror 以 `tooltip.create` 的引用判定是否复用 TooltipView；若每次
+      // selectedIndex/query 变化都新建 Tooltip（新的 create 箭头函数），CM 会销毁
+      // 并重建弹窗 DOM，导致 scrollTop 归零（停止滚动时回弹到顶部）。复用同一对象
+      // 后，状态变化只走 TooltipView.update，滚动位置得以保留。
+      if (activeTooltip && activeTooltip.pos === v.triggerPos) {
+        return activeTooltip.tip;
+      }
+      const tip = buildTooltip(v);
+      activeTooltip = { pos: v.triggerPos, tip };
+      return tip;
     }),
 });
 
@@ -134,6 +153,9 @@ const slashStateField = StateField.define<SlashState | null>({
 // ---------------------------------------------------------------------------
 
 let activeConfig: SlashCommandsConfig | null = null;
+
+// 记忆当前打开的弹窗对应的 Tooltip 对象，确保同一触发位置返回稳定引用（见 provide 注释）。
+let activeTooltip: { pos: number; tip: Tooltip } | null = null;
 
 function buildTooltip(state: SlashState): Tooltip {
   return {
@@ -164,6 +186,26 @@ function renderPopup(view: EditorView, initial: SlashState): TooltipView {
   root.className = 'cm-slash-popup';
   root.setAttribute('role', 'listbox');
   root.setAttribute('aria-label', 'Slash commands');
+
+  root.addEventListener(
+    'wheel',
+    (ev) => {
+      const maxScroll = root.scrollHeight - root.clientHeight;
+      if (maxScroll <= 0) return;
+
+      const deltaY =
+        ev.deltaMode === 1
+          ? ev.deltaY * 16
+          : ev.deltaMode === 2
+            ? ev.deltaY * root.clientHeight
+            : ev.deltaY;
+
+      ev.preventDefault();
+      ev.stopPropagation();
+      root.scrollTop = Math.max(0, Math.min(maxScroll, root.scrollTop + deltaY));
+    },
+    { passive: false },
+  );
 
   let lastQuery = '<NEVER>';
   let lastSelectedIndex = -1;
@@ -209,11 +251,12 @@ function renderPopup(view: EditorView, initial: SlashState): TooltipView {
       hint.textContent = hintOf(b);
       row.appendChild(hint);
 
-      row.addEventListener('mousedown', (ev) => {
-        // Prevent the editor losing focus before our handler runs.
+      row.addEventListener('pointerdown', (ev) => {
+        // pointerdown + preventDefault 防止编辑器失焦；stopPropagation 避免
+        // tooltip 在 insertBlock 前被 CodeMirror 销毁。
         ev.preventDefault();
-      });
-      row.addEventListener('click', () => {
+        ev.stopPropagation();
+        view.focus();
         const cur = view.state.field(slashStateField, false);
         if (!cur) return;
         insertBlock(view, cur, b);
@@ -239,21 +282,21 @@ function renderPopup(view: EditorView, initial: SlashState): TooltipView {
     });
   };
 
-  const setActive = (idx: number) => {
+  const setActive = (idx: number, scrollIntoView = false) => {
     for (let i = 0; i < rowEls.length; i++) {
       const active = i === idx;
       rowEls[i].classList.toggle('cm-slash-row--active', active);
       rowEls[i].setAttribute('aria-selected', active ? 'true' : 'false');
-      if (active) {
-        // v4.3.x issue #80 — keep the highlighted row in view when the
-        // user pages through a list taller than the popup. `nearest`
-        // scrolls only when needed (avoids jitter on every keystroke).
-        rowEls[i].scrollIntoView({ block: 'nearest' });
+      if (active && scrollIntoView) {
+        // Keyboard navigation should keep the highlighted row visible.
+        // Mouse wheel/hover updates must not do this, or the popup snaps
+        // back to the selected row while the user is trying to scroll.
+        rowEls[i].scrollIntoView({ block: 'nearest', behavior: 'instant' });
       }
     }
   };
 
-  const repaint = (s: SlashState) => {
+  const repaint = (s: SlashState, scrollIntoView = false) => {
     const filtered = filterBlocks(SLASH_BLOCKS, s.query);
     const clamped = clampIndex(s.selectedIndex, filtered.length);
     const queryChanged = s.query !== lastQuery;
@@ -263,9 +306,9 @@ function renderPopup(view: EditorView, initial: SlashState): TooltipView {
       lastQuery = s.query;
       rebuildRows(filtered);
       // The new list of rows means we have to re-apply the active class.
-      setActive(clamped);
+      setActive(clamped, scrollIntoView);
     } else {
-      setActive(clamped);
+      setActive(clamped, scrollIntoView);
     }
     lastSelectedIndex = clamped;
   };
@@ -278,10 +321,14 @@ function renderPopup(view: EditorView, initial: SlashState): TooltipView {
     update: (u) => {
       const s = u.state.field(slashStateField, false);
       if (!s) return;
-      repaint(s);
+      const shouldScrollIntoView = u.transactions.some((tr) =>
+        tr.effects.some((effect) => effect.is(scrollSlashSelectionIntoView)),
+      );
+      repaint(s, shouldScrollIntoView);
     },
     mount: () => {
-      // Nothing — initial render done above.
+      const wrap = root.closest('.cm-tooltip');
+      wrap?.classList.add('cm-slash-tooltip');
     },
     destroy: () => {
       lastQuery = '<NEVER>';
@@ -402,7 +449,12 @@ function navigate(view: EditorView, delta: number): boolean {
   const filtered = filterBlocks(SLASH_BLOCKS, s.query);
   if (filtered.length === 0) return true; // swallow but no-op
   const next = (s.selectedIndex + delta + filtered.length) % filtered.length;
-  view.dispatch({ effects: setSlashState.of({ ...s, selectedIndex: next }) });
+  view.dispatch({
+    effects: [
+      setSlashState.of({ ...s, selectedIndex: next }),
+      scrollSlashSelectionIntoView.of(true),
+    ],
+  });
   return true;
 }
 
@@ -441,12 +493,14 @@ const popupKeymap = Prec.highest(
 const slashTheme = EditorView.theme({
   '.cm-slash-popup': {
     width: '280px',
-    maxHeight: '320px',
+    maxHeight: '400px',
     overflowY: 'auto',
-    background: 'var(--bg-elevated, var(--bg, #fff))',
+    // 不透明的浮层底色：用真实存在的 --bg-elev（Ivory 上浮面），并给纯色兜底，
+    // 避免之前误用未定义的 --bg-elevated 回退到画布同色而看起来「透明」。
+    background: 'var(--bg-elev, #faf9f5)',
     border: '1px solid var(--border, rgba(0, 0, 0, 0.12))',
     borderRadius: '6px',
-    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.28)',
     padding: '4px',
     fontSize: '13px',
     fontFamily: 'inherit',
@@ -497,10 +551,12 @@ const slashTheme = EditorView.theme({
     fontSize: '12px',
     lineHeight: '1.4',
   },
-  // The CM6 tooltip wrapper itself — strip its default chrome so our
-  // own panel styling shows through.
-  '.cm-tooltip.cm-tooltip-below.cm-slash-tooltip': {
-    background: 'transparent',
+  // The CM6 tooltip wrapper itself — give it the same opaque elevated
+  // background as the inner popup so the menu is never see-through, even if
+  // the inner panel doesn't fully cover the wrapper. Inner panel owns the
+  // border/shadow; wrapper just guarantees opacity.
+  '.cm-tooltip.cm-tooltip-below.cm-slash-tooltip, .cm-tooltip.cm-tooltip-above.cm-slash-tooltip': {
+    background: 'var(--bg-elev, #faf9f5)',
     border: 'none',
     padding: 0,
     boxShadow: 'none',

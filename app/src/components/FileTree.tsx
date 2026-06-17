@@ -357,7 +357,6 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
   const { t } = useI18n();
   const files = useFiles();
   const currentFolder = useWorkspaceStore((state) => state.currentFolder);
-  const recentFolders = useWorkspaceStore((state) => state.recentFolders);
   const scannedNodes = useNodesStore((state) => state.nodes);
   const templates = useTemplatesStore((state) => state.templates);
   const showHiddenFiles = useSettingsStore((state) => state.showHiddenFiles);
@@ -367,7 +366,6 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
   const [rootLoading, setRootLoading] = useState(false);
   const [rootTruncated, setRootTruncated] = useState(false);
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [selection, setSelection] = useState<string | undefined>(undefined);
   const [violationsByPath, setViolationsByPath] = useState<Map<string, StructureViolation[]>>(new Map());
@@ -383,7 +381,6 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
   const [normalizing, setNormalizing] = useState(false);
   const treeWrapRef = useRef<HTMLDivElement | null>(null);
   const ctxRef = useRef<HTMLDivElement | null>(null);
-  const switcherRef = useRef<HTMLDivElement | null>(null);
   const arboristRef = useRef<TreeApi<ExplorerEntry> | undefined>(undefined);
   const refreshDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressIndexRefreshUntil = useRef(0);
@@ -629,6 +626,60 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     }
     for (const id of openIdsRef.current) pendingOpenIds.current.add(id);
     flushPendingTreeOpen();
+  }
+
+  /** 展开并加载目标路径的全部祖先目录，供「定位当前文件」使用。 */
+  async function ensureAncestorsOpenForPath(absPath: string) {
+    const root = useWorkspaceStore.getState().currentFolder;
+    if (!root || !isInsideWorkspace(absPath)) return;
+
+    const rel = absPath.startsWith(root)
+      ? absPath.slice(root.length).replace(/^[\\/]+/, '')
+      : absPath;
+    const sep = root.includes('\\') ? '\\' : '/';
+    const parts = rel.split(/[\\/]/).filter(Boolean);
+    if (parts.length <= 1) return;
+
+    let acc = root;
+    for (let pi = 0; pi < parts.length - 1; pi++) {
+      acc = acc + (acc.endsWith(sep) ? '' : sep) + parts[pi];
+      scheduleTreeOpen(acc);
+      const loaded = await loadDir(acc);
+      if (useWorkspaceStore.getState().currentFolder !== root) return;
+      const children = await loadOpenDescendants(loaded.children, openIdsRef.current);
+      if (normalizedAbs(acc) === normalizedAbs(root)) {
+        setTreeData(children);
+        setRootTruncated(loaded.truncated);
+      } else {
+        setTreeData((current) =>
+          updateEntry(current, acc, (entry) => ({
+            ...entry,
+            children,
+            loaded: true,
+            truncated: loaded.truncated,
+          })),
+        );
+      }
+    }
+    for (const id of openIdsRef.current) pendingOpenIds.current.add(id);
+    flushPendingTreeOpen();
+  }
+
+  async function revealActiveFileInTree() {
+    const activePath = useTabsStore.getState().activeTab()?.filePath;
+    if (!activePath || !currentFolder) return;
+    await ensureAncestorsOpenForPath(activePath);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    setSelection(activePath);
+    arboristRef.current?.select(activePath);
+    arboristRef.current?.scrollTo(activePath);
+    requestAnimationFrame(() => {
+      setSelection(activePath);
+      arboristRef.current?.select(activePath);
+      arboristRef.current?.scrollTo(activePath);
+    });
   }
 
   function scheduleRefresh(options: { showLoading?: boolean } = { showLoading: false }) {
@@ -1042,23 +1093,6 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     scheduleRefresh();
   }
 
-  const switcherList = (() => {
-    const seen = new Set<string>();
-    const out: Array<{ path: string; name: string; parent: string }> = [];
-    const push = (path: string) => {
-      if (!path || seen.has(path)) return;
-      seen.add(path);
-      const parts = path.split(/[\\/]/).filter(Boolean);
-      out.push({
-        path,
-        name: parts[parts.length - 1] ?? path,
-        parent: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
-      });
-    };
-    if (currentFolder) push(currentFolder);
-    for (const folder of recentFolders) push(folder);
-    return out;
-  })();
 
   useEffect(() => {
     void refreshRoot({ showLoading: true });   // 仅首次加载显示 loading 占位
@@ -1102,14 +1136,12 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     };
     const onRemotePulled = () => scheduleRefresh();
     const closeFloating = () => {
-      setSwitcherOpen(false);
       setCtx(null);
     };
     const onDocumentPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof globalThis.Node) {
         if (ctxRef.current?.contains(target)) return;
-        if (switcherRef.current?.contains(target)) return;
       }
       closeFloating();
     };
@@ -1176,6 +1208,15 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
               <span className="ftree__hbtn-count">{violationCount}</span>
             </button>
           )}
+          {/* 在文件树中定位当前文件 */}
+          <button
+            className="ftree__hbtn"
+            title={t('explorer.locateFile')}
+            onClick={() => void revealActiveFileInTree()}
+            disabled={!currentFolder}
+          >
+            <Icon name="focus" size={13} />
+          </button>
           <button
             className="ftree__hbtn"
             title={t('explorer.newFileHeader')}
@@ -1196,55 +1237,9 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
         </div>
       ) : (
         <div className="ftree__body">
+          {/* 工作区名称（非交互标签；快捷切换已移至顶部工具栏） */}
           <div className="ftree__root-wrap">
-            <button
-              className="ftree__root ftree__root--btn"
-              title={currentFolder}
-              onClick={(event) => {
-                event.stopPropagation();
-                setSwitcherOpen((value) => !value);
-              }}
-              onContextMenu={(event) => openCtx(event, null)}
-            >
-              <span className="ftree__root-name">{rootName}</span>
-              <span className="ftree__root-caret" aria-hidden="true">
-                <Icon name={switcherOpen ? 'chevron-down' : 'chevron-right'} size={9} />
-              </span>
-            </button>
-            {switcherOpen && (
-              <div ref={switcherRef} className="ftree__switcher" onClick={(event) => event.stopPropagation()}>
-                <div className="ftree__switcher-label">{t('explorer.recentFolders')}</div>
-                {switcherList.map((folder) => (
-                  <button
-                    key={folder.path}
-                    className={`ftree__switcher-item${folder.path === currentFolder ? ' ftree__switcher-item--active' : ''}`}
-                    title={folder.path}
-                    onClick={() => {
-                      setSwitcherOpen(false);
-                      if (folder.path !== useWorkspaceStore.getState().currentFolder) {
-                        useWorkspaceStore.getState().setFolder(folder.path);
-                      }
-                    }}
-                  >
-                    <span className="ftree__switcher-name">{folder.name}</span>
-                    <span className="ftree__switcher-path">{folder.parent}</span>
-                  </button>
-                ))}
-                {switcherList.length === 0 && (
-                  <div className="ftree__switcher-empty">{t('explorer.noRecentFolders')}</div>
-                )}
-                <div className="ftree__switcher-sep" />
-                <button
-                  className="ftree__switcher-item ftree__switcher-item--cta"
-                  onClick={() => {
-                    setSwitcherOpen(false);
-                    void files.openFolder();
-                  }}
-                >
-                  <Icon name="folder" size={14} /> {t('explorer.openFolder')}
-                </button>
-              </div>
-            )}
+            <span className="ftree__root-name">{rootName}</span>
           </div>
 
           {/*

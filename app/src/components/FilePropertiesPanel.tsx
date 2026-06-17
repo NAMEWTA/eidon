@@ -3,7 +3,7 @@
  *
  * 与 NodePropertiesPanel（目录节点 `.node/node.json` 的强类型字段）平行：
  * 这里面向**当前打开的 md 文件**，把 YAML frontmatter 当作可编辑属性呈现。
- *  - 通用字段（title / tags / created / updated）固定在最上方；
+ *  - 通用字段（title / tags / created）固定在最上方；
  *  - 其余 frontmatter 键作为「扩展字段」动态渲染。
  * 保存/快捷键：合并回 data → `stringifyFrontMatter` 拼回全文 → `setContent` 写标签内容
  * → `saveActive()` 写入磁盘（属性面板内 Cmd+S / Ctrl+S 同样触发）。复用 NodePropertiesPanel
@@ -91,7 +91,6 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
   const [title, setTitle] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [created, setCreated] = useState('');
-  const [updated, setUpdated] = useState('');
   const [extras, setExtras] = useState<ExtraField[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -105,7 +104,6 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
       setTitle('');
       setTags([]);
       setCreated('');
-      setUpdated('');
       setExtras([]);
       return;
     }
@@ -113,7 +111,6 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
     setTitle(typeof data.title === 'string' ? data.title : data.title != null ? String(data.title) : '');
     setTags(toTagsArray(data.tags));
     setCreated(normalizeDate(data.created));
-    setUpdated(normalizeDate(data.updated));
     setExtras(
       Object.keys(data)
         .filter((k) => !UNIVERSAL_KEYS.has(k))
@@ -148,9 +145,6 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
       const existingCreated = created.trim();
       data.created = existingCreated || now;
 
-      // 更新时间：每次保存都刷新为此刻
-      data.updated = now;
-
       for (const e of extras) {
         if (!e.key.trim()) continue;
         data[e.key] = e.editable ? coerceExtra(e.text, e.original) : e.original;
@@ -158,7 +152,6 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
       const next = stringifyFrontMatter(data, body);
       useTabsStore.getState().setContent(current.id, next);
       setCreated(normalizeDate(data.created));
-      setUpdated(now);
 
       // 写入磁盘（未保存文件弹出「另存为」对话框；成功/取消由 saveTab 内部 toast）
       await files.saveActive();
@@ -266,14 +259,6 @@ export function FilePropertiesPanel({ onClose }: FilePropertiesPanelProps) {
                 {t('fileProps.field.created')}
               </span>
               <input type="text" value={created} onChange={(e) => setCreated(e.target.value)} placeholder="YYYY-MM-DD HH:mm:ss" />
-            </label>
-
-            <label className="node-props__field">
-              <span className="node-props__field-label">
-                <span className="node-props__field-type">D</span>
-                {t('fileProps.field.updated')}
-              </span>
-              <input type="text" value={updated} disabled placeholder="YYYY-MM-DD HH:mm:ss" />
             </label>
           </section>
 

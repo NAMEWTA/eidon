@@ -255,6 +255,13 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
               const rawSrc = imgMatch[2];
               const root = opts.getImageRoot?.() ?? null;
               const filePath = opts.getFilePath?.();
+              // 未保存文件（无 filePath）且图片是相对路径时，无法解析 → 跳过 live 块，
+              // 回退到原始 Markdown 语法展示（保存后 compartment 重建会重新渲染）。
+              const isRelativeSrc = !/^(https?|data|blob|asset|tauri|file|\/\/|\/|[a-zA-Z]:)/i.test(rawSrc);
+              if (isRelativeSrc && !filePath) {
+                i += 1;
+                continue;
+              }
               const src = resolveImageSrc(rawSrc, root, filePath);
               builder.add(
                 line.from,

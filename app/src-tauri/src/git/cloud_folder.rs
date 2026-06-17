@@ -1,22 +1,17 @@
 //! v2.6.1 — Cloud-folder detection + cross-device session restore.
 //!
 //! Two complementary primitives that together let EIDON pick up where the
-//! user left off across machines, without our v2.6.0 GitHub sync layer:
+//! user left off across machines:
 //!
 //! 1. **Cloud-folder detection.** If the workspace path lives inside iCloud
 //!    Drive, Dropbox, OneDrive, or Google Drive, the provider already runs
-//!    background sync; EIDON just needs to surface that fact in the UI
-//!    ("your workspace is in iCloud — saves propagate automatically") and
-//!    avoid showing GitHub-sync nudges that would feel redundant.
+//!    background sync; EIDON surfaces that fact in the UI.
 //!
 //! 2. **Per-device session files.** `<folder>/.eidon-sync/session.<deviceId>.json`
 //!    holds open tabs + cursor positions. Each device writes its own; the
 //!    cloud provider syncs them like any other file. On launch we check
 //!    sibling sessions, and if one is newer than ours and from a different
 //!    device, offer to restore from it.
-//!
-//! Crucially: session files are gitignored alongside `.eidon-sync/sync.json` so
-//! they don't end up in the GitHub-backed repo (which would conflict per-pull).
 
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -14,23 +14,21 @@ import { useI18n } from '../i18n';
 import { checkForUpdate, openReleaseUrl, isMasBuild } from '../lib/check-update';
 import { CommitInput } from './CommitInput';
 import { CitationPickerSettings } from './CitationPickerSettings';
-import { GithubSyncSettings } from './GithubSyncSettings';
 import { HistorySettings } from './HistorySettings';
 import { TemplateManager } from './TemplateManager';
 import { isIOS } from '../lib/platform';
 import type { Theme, ViewMode } from '../types';
 
-type SettingsCategory = 'basics' | 'templates' | 'writing' | 'sync' | 'export' | 'advanced';
+type SettingsCategory = 'basics' | 'templates' | 'writing' | 'export' | 'advanced';
 
 const VALID_CATEGORIES = new Set<SettingsCategory>([
-  'basics', 'templates', 'writing', 'sync', 'export', 'advanced',
+  'basics', 'templates', 'writing', 'export', 'advanced',
 ]);
 
 const categories: { id: SettingsCategory; icon: string; labelKey?: string; label?: string }[] = [
   { id: 'basics', icon: 'settings', labelKey: 'settings.catBasics' },
   { id: 'templates', icon: 'package', labelKey: 'settings.catTemplates' },
   { id: 'writing', icon: 'pen', labelKey: 'settings.catWriting' },
-  { id: 'sync', icon: 'cloud', labelKey: 'settings.catSync' },
   { id: 'export', icon: 'export', labelKey: 'settings.catExport' },
   { id: 'advanced', icon: 'tool', labelKey: 'settings.catAdvanced' },
 ];
@@ -314,7 +312,7 @@ export function SettingsPanel({ open, initialSection, onClose }: SettingsPanelPr
               <p style={hintMt4}>{t('writingStats.frontMatterHint')}</p>
             </section>
 
-            <section data-cat="sync">
+            <section data-cat="advanced">
               <h3 style={subHeading}>{t('settings.versionHistoryHeading')}</h3>
               <label>
                 <input type="checkbox" checked={settings.autoGitEnabled} onChange={() => settings.toggleAutoGit()} />
@@ -322,11 +320,6 @@ export function SettingsPanel({ open, initialSection, onClose }: SettingsPanelPr
               </label>
               <p style={hintMt4}>{t('settings.autoGitHelp')}</p>
               <HistorySettings />
-            </section>
-
-            {/* Git 远程同步（按 workspace 推/拉，支持 github/gitlab/gitea/自建） */}
-            <section data-cat="sync">
-              <GithubSyncSettings />
             </section>
 
             <section data-cat="writing">

@@ -185,9 +185,9 @@ export const PreviewSearch = forwardRef<PreviewSearchHandle, { container: HTMLEl
         {query.trim() && (
           <span className="ps-count">{matchCount > 0 ? `${currentIdx + 1}/${matchCount}` : t('noResults')}</span>
         )}
-        <button className="ps-btn" disabled={matchCount === 0} onClick={goPrev} title="Previous"><Icon name="chevron-up" size={13} /></button>
-        <button className="ps-btn" disabled={matchCount === 0} onClick={goNext} title="Next"><Icon name="chevron-down" size={13} /></button>
-        <button className="ps-btn ps-btn--close" onClick={close} title="Close"><Icon name="close" size={13} /></button>
+        <button className="ps-btn" disabled={matchCount === 0} onClick={goPrev} title={t('previewSearchPrev')}><Icon name="chevron-up" size={13} /></button>
+        <button className="ps-btn" disabled={matchCount === 0} onClick={goNext} title={t('previewSearchNext')}><Icon name="chevron-down" size={13} /></button>
+        <button className="ps-btn ps-btn--close" onClick={close} title={t('previewSearchClose')}><Icon name="close" size={13} /></button>
       </div>
     );
   },

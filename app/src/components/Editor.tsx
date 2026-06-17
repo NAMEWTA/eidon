@@ -27,6 +27,7 @@ import { readSession, clearSession } from '../lib/cm-session-restore';
 import {
   makeEditorCompartments,
   buildEditorExtensions,
+  buildPhrases,
   markdownExt,
   spellCheckAttr,
   richExtensionsFor,
@@ -69,6 +70,7 @@ function snapshotSettings(): EditorBuildSettings {
     editorRender: s.editorRender,
     attachmentMode: s.attachmentMode,
     assetsDirName: s.assetsDirName,
+    language: s.language,
   };
 }
 
@@ -215,6 +217,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
   const fontFamily = useSettingsStore((s) => s.fontFamily);
   const editorRender = useSettingsStore((s) => s.editorRender);
   const slashCommandsEnabled = useSettingsStore((s) => s.slashCommandsEnabled);
+  const language = useSettingsStore((s) => s.language);
 
   const reconfigure = (build: () => Parameters<EditorView['dispatch']>[0]['effects']) => {
     const view = viewRef.current;
@@ -257,6 +260,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
     view.dispatch({ effects: compsRef.current.slash.reconfigure(slashExt(makeHandlers())) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slashCommandsEnabled]);
+  // 语言切换 → 重新配置 CodeMirror phrases（搜索面板 i18n）。
+  useEffect(() => {
+    reconfigure(() =>
+      compsRef.current.phrases.reconfigure(EditorState.phrases.of(buildPhrases(language))),
+    );
+  }, [language]);
 
   // 引用库加载（随 workspaceBibliography 变化）。
   const workspaceBibliography = useSettingsStore((s) => s.workspaceBibliography);

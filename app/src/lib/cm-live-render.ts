@@ -44,6 +44,7 @@ import {
   EditorView,
   ViewPlugin,
   type ViewUpdate,
+  WidgetType,
 } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import { isDragging, isDragEndTransaction } from './cm-drag-aware';
@@ -87,6 +88,27 @@ const fencedLine = lineClass('cm-md-fenced-line');
 const headingLine = (level: number) => lineClass(`cm-md-heading-line cm-md-heading-line-${level}`);
 
 const hideDeco = Decoration.replace({});
+
+// 无序列表按嵌套深度变换 bullet 字形（• → ◦ → ▪ 循环），让层级一眼可辨。
+const BULLET_GLYPHS = ['•', '◦', '▪'];
+
+class BulletWidget extends WidgetType {
+  constructor(readonly glyph: string) {
+    super();
+  }
+  eq(other: BulletWidget) {
+    return other.glyph === this.glyph;
+  }
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'cm-md-bullet';
+    span.textContent = this.glyph;
+    return span;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
 
 // Heading nodes 1..6 → level
 const HEADING_LEVELS: Record<string, number> = {
@@ -146,6 +168,36 @@ function buildDecorations(view: EditorView): DecorationSet {
               }
             }
             ranges.push(hideDeco.range(nFrom, hideTo));
+          }
+          return;
+        }
+
+        // ---- Bullet list marker: swap `-`/`*`/`+` for a depth-based glyph
+        //      (• ◦ ▪) so nesting levels look distinct. Ordered markers
+        //      (`1.`) keep their number. Task items keep their `-` (the
+        //      checkbox is rendered separately). Revealed (source `-`) when
+        //      the caret is on the line so it stays editable. ----
+        if (name === 'ListMark') {
+          const listItem = node.node.parent;
+          const list = listItem?.parent;
+          if (list && list.name === 'BulletList' && !caretTouches && nTo > nFrom) {
+            const after = view.state.doc.sliceString(
+              nTo,
+              Math.min(nTo + 4, view.state.doc.length),
+            );
+            // Skip task list items (`- [ ] …`) — leave their marker alone.
+            if (!/^\s?\[[ xX]\]/.test(after)) {
+              let depth = 0;
+              let p: typeof list | null = list;
+              while (p) {
+                if (p.name === 'BulletList' || p.name === 'OrderedList') depth++;
+                p = p.parent;
+              }
+              const glyph = BULLET_GLYPHS[(depth - 1 + BULLET_GLYPHS.length) % BULLET_GLYPHS.length];
+              ranges.push(
+                Decoration.replace({ widget: new BulletWidget(glyph) }).range(nFrom, nTo),
+              );
+            }
           }
           return;
         }
@@ -347,6 +399,11 @@ const liveEditTheme = EditorView.theme({
   '.cm-md-h4': { color: 'var(--md-h4)' },
   '.cm-md-h5': { color: 'var(--md-h5)' },
   '.cm-md-h6': { color: 'var(--md-h6)' },
+
+  '.cm-md-bullet': {
+    color: 'var(--md-list, var(--accent))',
+    fontWeight: '700',
+  },
 
   '.cm-md-strong': { fontWeight: '700', color: 'var(--md-strong)' },
   '.cm-md-em': { fontStyle: 'italic', color: 'var(--md-em)' },

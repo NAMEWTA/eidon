@@ -5,8 +5,18 @@
  * 「拆分 → 编辑 data → 拼回全文」的双向能力，供「文件属性」面板编辑后写回 md。
  * 复用已装依赖 `js-yaml`（与 markdown.ts 同一套解析器）。
  *
- * 通用元字段 `UNIVERSAL_FIELDS`（title / tags / created / updated）所有 md 文件统一拥有，
+ * 通用元字段 `UNIVERSAL_FIELDS`（title / tags / created）所有 md 文件统一拥有，
  * 序列化时固定排在最前；其余键作为「扩展字段」按原顺序跟随。
+ *
+ * **契约状态**：frontmatter 是 SoloMD 遗留的松散 YAML 约定，尚未纳入 EIDON
+ * `core/contracts/` 的 zod schema 体系（与 `.node/node.json` 的正式契约不同）。
+ * 若未来规范化 frontmatter 形状，需先在 `core/contracts/` 建 zod schema +
+ * `fixtures/contracts/` golden fixtures，再修改本文件的解析逻辑（见 ADR-0005/0014）。
+ *
+ * **`updated` 字段迁移说明**（2026-06）：`updated` 已从 UNIVERSAL_FIELDS 移除，
+ * `ensureFrontmatterTimestamps()` 不再写入该字段。已有 `updated` 的旧文档中该字段
+ * 会被保留（不再自动更新），在 FilePropertiesPanel 中显示为「扩展字段」。
+ * 用户可手动删除该扩展字段；不提供自动清理以避免静默修改用户文件。
  */
 import yaml from 'js-yaml';
 
@@ -25,7 +35,6 @@ export const UNIVERSAL_FIELDS: ReadonlyArray<UniversalField> = [
   { key: 'title', type: 'text' },
   { key: 'tags', type: 'tags' },
   { key: 'created', type: 'date' },
-  { key: 'updated', type: 'date' },
 ];
 
 export const UNIVERSAL_KEYS: ReadonlySet<string> = new Set(UNIVERSAL_FIELDS.map((f) => f.key));
@@ -122,48 +131,37 @@ export function nowISO(): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
-/** 新建 Markdown 文件的初始内容（含 frontmatter created / updated 时间戳）。 */
+/** 新建 Markdown 文件的初始内容（仅含 frontmatter created 时间戳，不写 updated）。 */
 export function initialMarkdownContent(): string {
   const now = nowISO();
-  return `---\ncreated: ${now}\nupdated: ${now}\n---\n\n`;
+  return `---\ncreated: ${now}\n---\n\n`;
 }
 
 /**
- * 保存时保证 Markdown **一律带上** `created` / `updated` 时间戳（精确到秒）。
- * - **无 frontmatter** → 在文首注入 `---\ncreated\nupdated\n---` 块，正文原样跟随（强制带上）。
- * - **有 frontmatter** → 就地：缺 `created` 则补 now（首次纳管的近似创建时刻）；
- *   `updated` 有则仅替换其值（同宽 19 字符，重复保存零位移，编辑器光标不受扰），无则插到 `created` 之后。
- * 不重排/不重格式化用户的其余 frontmatter（与属性面板的整块规范化解耦）。
- * 注：仅 md 走此路（调用方按语言判定），首存后即带 FM，后续保存只滚动 `updated`、不再重复注入。
+ * 保存时保证 Markdown **一律带上** `created` 时间戳（精确到秒）。
+ * - **无 frontmatter** → 在文首注入 `---\ncreated\n---` 块，正文原样跟随。
+ * - **有 frontmatter** → 就地检查：缺 `created` 则补 now（首次纳管的近似创建时刻）。
+ * **不写 `updated` 字段**（用户要求去除，避免每次保存产生无内容变更的版本历史）。
+ * 注：仅 md 走此路（调用方按语言判定），首存后即带 FM，后续保存不再重复注入。
  */
 export function ensureFrontmatterTimestamps(raw: string): string {
   const text = raw ?? '';
   const now = nowISO();
   const m = FM_RE.exec(text);
   if (!m) {
-    // 无 frontmatter：注入含 created/updated 的块，正文跟随（去掉正文开头多余空行避免叠加）。
+    // 无 frontmatter：仅注入 created，不写 updated。
     const body = text.replace(/^\s*\n/, '');
-    const block = `---\ncreated: ${now}\nupdated: ${now}\n---\n`;
+    const block = `---\ncreated: ${now}\n---\n`;
     return body ? `${block}\n${body}` : block;
   }
   const inner = m[1];
-  const updatedRe = /^(\s*updated\s*:).*$/;
   const createdRe = /^\s*created\s*:/;
-  let foundUpdated = false;
-  const next = inner.split('\n').map((ln) => {
-    if (!foundUpdated && updatedRe.test(ln)) {
-      foundUpdated = true;
-      return ln.replace(updatedRe, `$1 ${now}`);
-    }
-    return ln;
-  });
-  if (!next.some((ln) => createdRe.test(ln))) next.unshift(`created: ${now}`);
-  if (!foundUpdated) {
-    const createdIdx = next.findIndex((ln) => createdRe.test(ln));
-    next.splice(createdIdx >= 0 ? createdIdx + 1 : next.length, 0, `updated: ${now}`);
+  // 已有 created → 不动（尤其不再写 updated 字段）
+  if (inner.split('\n').some((ln) => createdRe.test(ln))) {
+    return text;
   }
-  const newInner = next.join('\n');
-  // 用函数式 replace 避免 newInner 中的 `$` 被当成替换模式；m[0] 为开头整段 frontmatter。
+  // 缺 created → 补到 frontmatter 最前面
+  const newInner = `created: ${now}\n${inner}`;
   const rebuilt = m[0].replace(inner, () => newInner);
   return text.slice(0, m.index) + rebuilt + text.slice(m.index + m[0].length);
 }

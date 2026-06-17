@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>第1课：全景图 — Rust 目录结构与进程启动</title>
+<style>
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1.2rem; font-family: system-ui, -apple-system, sans-serif; line-height: 1.8; color: #1a1a1a; }
+  h1 { font-size: 1.5rem; margin-top: 2.5rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; color: #333; }
+  h3 { font-size: 1rem; margin-top: 1.5rem; color: #555; }
+  blockquote { border-left: 3px solid #FFB74D; margin-left: 0; padding-left: 1rem; color: #555; background: #FFF8E1; padding: 0.6rem 1rem; border-radius: 0 6px 6px 0; }
+  .diagram { background: #263238; color: #A5D6A7; padding: 1.2rem 1.5rem; border-radius: 8px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; line-height: 1.6; overflow-x: auto; margin: 1rem 0; }
+  .diagram .dim { color: #78909C; }
+  .diagram .hl { color: #FFCC80; }
+  .file { font-family: 'SF Mono', monospace; background: #ECEFF1; padding: 2px 6px; border-radius: 3px; font-size: 0.9rem; }
+  .concept { background: #E8F5E9; padding: 0.8rem 1rem; border-radius: 6px; margin: 0.8rem 0; border-left: 3px solid #4CAF50; }
+  .warn { background: #FFF3E0; padding: 0.8rem 1rem; border-radius: 6px; margin: 0.8rem 0; border-left: 3px solid #FF9800; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.9rem; }
+  th, td { border: 1px solid #E0E0E0; padding: 8px 12px; text-align: left; }
+  th { background: #F5F5F5; }
+  code { background: #ECEFF1; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #263238; color: #A5D6A7; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.82rem; line-height: 1.5; }
+  .cite { font-size: 0.85rem; color: #888; margin-top: 2.5rem; border-top: 1px solid #eee; padding-top: 0.5rem; }
+  .reminder { background: #f5f5f5; padding: 0.8rem 1rem; border-radius: 6px; margin-top: 2rem; font-size: 0.9rem; }
+  .step { margin: 0.4rem 0; padding-left: 1rem; }
+  .step-num { display: inline-block; width: 24px; height: 24px; line-height: 24px; text-align: center; background: #1565C0; color: #fff; border-radius: 50%; font-size: 0.8rem; margin-right: 8px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<h1>🧭 第1课：全景图 — Rust 目录结构与进程启动</h1>
+
+<p><strong>目标：</strong>看完这节课，你能说出每个 <code>.rs</code> 文件的职责，以及应用从启动到窗口显示的完整流程。</p>
+
+<h2>一、先看目录树</h2>
+
+<pre>
+app/src-tauri/src/
+├── <strong>main.rs</strong>              ← 二进制入口（你双击应用图标后首先执行的 Rust 代码）
+├── <strong>lib.rs</strong>               ← 库入口（给移动端用，另一个 run()）
+├── <strong>runner.rs</strong>             ← <mark>真正的核心</mark>：菜单、命令注册、窗口管理
+│
+├── editor/              ← 编辑器相关
+│   ├── file_ops.rs      ← 文件读写、列表、复制、重命名、删除
+│   ├── convert.rs       ← 任意文件→Markdown 转换（DOCX/HTML/CSV/PDF/PPTX…）
+│   ├── pandoc.rs        ← Pandoc 导出（检测 pandoc + 执行导出）
+│   └── watcher.rs       ← 文件变更监控（外部编辑器改了文件→通知前端）
+│
+├── knowledge/           ← 知识管理
+│   ├── search.rs        ← 全局文本搜索
+│   ├── workspace_index.rs ← 工作区索引（wikilinks/backlinks/tags/headings）
+│   ├── spellcheck.rs    ← 英文拼写检查
+│   └── cjk_proofread.rs ← 中文校对（全角标点、的/地/得误用等）
+│
+├── git/                 ← 版本控制
+│   ├── git_history.rs   ← 自动 git commit、文件历史、diff、回滚
+│   ├── git_ops.rs       ← git 分支操作（checkout、创建/删除分支）
+│   ├── git_prune.rs     ← 历史修剪 + 仓库大小报告
+│   └── cloud_folder.rs  ← 云盘检测 + 跨设备 session 恢复
+│
+└── shell/               ← 构建/开发工具
+    ├── app_build.rs     ← 检测是否 App Store 构建
+    └── dev_bridge.rs    ← 调试用 WebDriver 桥（仅 debug 编译）
+</pre>
+
+<h2>二、两个入口：为什么有 main.rs 和 lib.rs？</h2>
+
+<div class="concept">
+<strong>核心概念：</strong>Tauri 2 应用有两种编译模式：
+<ul>
+  <li><strong>桌面端</strong>（macOS/Windows/Linux）：从 <code>main.rs</code> 进入 → 调用 <code>runner::run()</code></li>
+  <li><strong>移动端</strong>（iOS/Android）：从 <code>lib.rs</code> 进入 → <code>#[cfg_attr(mobile, tauri::mobile_entry_point)]</code> 标记的 <code>run()</code></li>
+</ul>
+两个入口的 <strong>命令注册列表几乎完全相同</strong>，但 <code>runner.rs</code> 多了桌面菜单、窗口管理等桌面专属逻辑。
+</div>
+
+<h2>三、启动流程（桌面端）</h2>
+
+<div class="diagram">
+<span class="dim">// 1️⃣ main.rs — 创建 Tokio 异步运行时，然后交给 runner</span>
+<span class="hl">let rt</span> = tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .build()<span class="dim">;</span>
+<span class="hl">runner::run()</span><span class="dim">;</span>
+
+<span class="dim">// 2️⃣ runner.rs::run() — 构建 Tauri 应用</span>
+tauri::Builder::default()
+    <span class="dim">// 安装内置插件（对话框、剪贴板、通知…）</span>
+    .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_clipboard_manager::init())
+    <span class="dim">// 注册共享状态</span>
+    .manage(watcher::WatcherState::new())
+    <span class="dim">// ⭐ 注册所有前端可调用的命令</span>
+    .invoke_handler(tauri::generate_handler![
+        file_ops::read_file,
+        file_ops::write_file,
+        <span class="dim">// ... 40+ 个命令</span>
+        watcher::watch_file,
+        watcher::unwatch_file,
+    ])
+    <span class="dim">// 原生菜单点击→转发给前端</span>
+    .on_menu_event(|app_handle, event| {
+        app_handle.emit("eidon://menu", event.id().0);
+    })
+    <span class="dim">// 启动时：显示窗口 + 启动调试桥</span>
+    .setup(|app| { ... })
+    <span class="dim">// 3️⃣ 构建并运行事件循环</span>
+    .build(tauri::generate_context!())
+    .run(|app_handle, event| {
+        <span class="dim">// 运行循环：监听窗口关闭、Ready 等事件</span>
+    });
+</div>
+
+<div class="warn">
+<strong>⚠️ 关键发现：lib.rs 和 runner.rs 都各自有 run() 函数！</strong><br>
+<code>runner.rs</code> 的 <code>run()</code> 是桌面端 <strong>实际在用</strong> 的。<br>
+<code>lib.rs</code> 的 <code>run()</code> 是给移动端的，但代码里 <code>main.rs</code> 调的是 <code>runner::run()</code>。<br>
+二者的命令列表基本一致，但 runner.rs 多出 <code>force_close_window</code>、<code>set_menu_language</code>、<code>convert::convert_file_to_markdown</code> 等命令。
+</div>
+
+<h2>四、模块路径的特殊声明方式</h2>
+
+<p>注意 EIDON 使用 <code>#[path = "..."]</code> 来声明模块：</p>
+
+<pre>// 不用传统的 mod.rs 嵌套目录，而是这样：
+#[path = "editor/file_ops.rs"]
+pub mod file_ops;
+
+#[path = "knowledge/search.rs"]
+pub mod search;</pre>
+
+<p>这样做的好处是保持文件树扁平化，每个 <code>.rs</code> 文件路径直接反映其逻辑归属（<code>editor/</code>、<code>knowledge/</code>、<code>git/</code>），而模块名保持简短。</p>
+
+<h2>五、平台条件编译</h2>
+
+<p>不是所有代码都在所有平台编译。EIDON 大量使用 Rust 的条件编译属性：</p>
+
+<table>
+  <tr><th>属性</th><th>含义</th><th>受影响的模块</th></tr>
+  <tr>
+    <td><code>#[cfg(not(target_os = "android"))]</code></td>
+    <td>Android 上不编译</td>
+    <td>git_history, git_ops, git_prune, cloud_folder</td>
+  </tr>
+  <tr>
+    <td><code>#[cfg(debug_assertions)]</code></td>
+    <td>仅 debug 构建编译</td>
+    <td>dev_bridge</td>
+  </tr>
+  <tr>
+    <td><code>#[cfg(desktop)]</code></td>
+    <td>仅桌面端</td>
+    <td>print_webview, window_state 插件</td>
+  </tr>
+  <tr>
+    <td><code>#[cfg(target_os = "macos")]</code></td>
+    <td>仅 macOS</td>
+    <td>apply_macos_language, AppKit 菜单</td>
+  </tr>
+</table>
+
+<h2>✅ 本课收获</h2>
+
+<ul>
+  <li>你能说出每个 <code>.rs</code> 文件属于哪个功能域（editor / knowledge / git / shell）</li>
+  <li>你知道了应用启动路径：<code>main.rs → runner::run() → Builder → .build() → .run(事件循环)</code></li>
+  <li>你理解了 <code>generate_handler!</code> 是所有命令的注册中心</li>
+  <li>你知道了条件编译如何在 Android/桌面/移动端之间开关功能</li>
+</ul>
+
+<div class="cite">📖 推荐一手资料：<a href="https://v2.tauri.app/start/">Tauri 2 官方文档</a> — 从 setup 到 build 的完整指南</div>
+<div class="reminder">💡 有疑问？直接问我——我是你的 AI 教师。例如你可以问：「lib.rs 和 runner.rs 为什么各有一个 run()？」「generate_handler! 是宏还是函数？」</div>
+
+</body>
+</html>

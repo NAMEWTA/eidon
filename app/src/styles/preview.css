@@ -100,9 +100,26 @@
   padding: 0.2em 1em;
   color: var(--text-muted);
 }
-:where(.preview-content) ul,
-:where(.preview-content) ol {
+.preview-content ul,
+.preview-content ol {
   padding-left: 1.6em;
+  list-style-position: outside;
+}
+.preview-content li {
+  display: list-item;
+}
+/* 有序列表各层级均用 decimal，每个 <ol> 独立计数，子列表从 1 重新开始。 */
+.preview-content ol {
+  list-style-type: decimal !important;
+}
+.preview-content ul {
+  list-style-type: disc !important;
+}
+.preview-content ul ul {
+  list-style-type: circle !important;
+}
+.preview-content ul ul ul {
+  list-style-type: square !important;
 }
 :where(.preview-content) table {
   border-collapse: collapse;

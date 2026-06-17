@@ -8,26 +8,15 @@ use tauri::{AppHandle, Emitter};
 
 const DEBOUNCE_MS: u64 = 300;
 const SELF_WRITE_SUPPRESSION_MS: u64 = 500;
-/// v2.6 — `crypto_decrypt_after_pull` rewrites every encrypted file in
-/// the workspace in one batch. Per-file `mark_self_write` would race
-/// the notify debouncer (the writes finish before the marks land), so
-/// expose a coarser "this whole subtree is about to change" window.
-const SYNC_REWRITE_WINDOW_MS: u64 = 30_000;
-
 /// Global self-write timestamps, shared between write_file and the watcher callback.
 static SELF_WRITES: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
 
-/// `(workspace_root_canonical → expires_at)` — while wall-clock is below
 /// `expires_at`, any change under that root is treated as a self-write.
-static SYNC_REWRITE_WINDOWS: OnceLock<Mutex<HashMap<PathBuf, Instant>>> = OnceLock::new();
 
 fn self_writes() -> &'static Mutex<HashMap<String, Instant>> {
     SELF_WRITES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn sync_windows() -> &'static Mutex<HashMap<PathBuf, Instant>> {
-    SYNC_REWRITE_WINDOWS.get_or_init(|| Mutex::new(HashMap::new()))
-}
 
 /// Called by write_file after a successful save to suppress the watcher event.
 ///
@@ -41,33 +30,6 @@ pub fn mark_self_write(path: &str) {
     map.insert(path.to_string(), Instant::now());
 }
 
-/// v2.6 — call before a batch operation that legitimately rewrites many
-/// files in `workspace` (a successful GitHub pull, a `crypto_decrypt_after_pull`
-/// run). Suppresses the file-watcher's "external change" dialog for
-/// `SYNC_REWRITE_WINDOW_MS`. Same opportunistic cleanup as
-/// `mark_self_write` — removes any expired windows before inserting.
-pub fn mark_workspace_rewrite_window(workspace: &std::path::Path) {
-    let canonical = std::fs::canonicalize(workspace).unwrap_or_else(|_| workspace.to_path_buf());
-    let mut map = sync_windows().lock().unwrap();
-    let now = Instant::now();
-    map.retain(|_, expires| *expires >= now);
-    map.insert(canonical, now + Duration::from_millis(SYNC_REWRITE_WINDOW_MS));
-}
-
-fn within_sync_rewrite_window(canonical_path: &std::path::Path) -> bool {
-    let map = sync_windows().lock().unwrap();
-    let now = Instant::now();
-    map.iter().any(|(root, expires)| {
-        *expires >= now && canonical_path.starts_with(root)
-    })
-}
-
-/// v4.2 — switched from per-file watching to per-directory watching to
-/// survive atomic-save patterns (write-temp + rename-into-place, used by
-/// VSCode / TextEdit / Vim / git checkout). When `notify` watches a file
-/// directly, the watch handle binds to the inode; an atomic rename swaps
-/// the inode out from under it and the handle goes deaf forever.
-///
 /// `watched_files` is the filter applied inside the event callback —
 /// only events whose canonical path is in this set get emitted.
 /// `watched_dirs` ref-counts how many tracked files live in each dir,
@@ -153,10 +115,6 @@ fn ensure_watcher(app: &AppHandle, state: &WatcherState) {
                     });
 
             if suppressed {
-                continue;
-            }
-
-            if within_sync_rewrite_window(&canonical) {
                 continue;
             }
 

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>第3课：通道二三四 — Events 推送、Plugin 插件、Menu 菜单</title>
+<style>
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1.2rem; font-family: system-ui, -apple-system, sans-serif; line-height: 1.8; color: #1a1a1a; }
+  h1 { font-size: 1.5rem; margin-top: 2.5rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; color: #333; }
+  h3 { font-size: 1rem; margin-top: 1.5rem; color: #555; }
+  .diagram { background: #263238; color: #A5D6A7; padding: 1.2rem 1.5rem; border-radius: 8px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; line-height: 1.6; overflow-x: auto; margin: 1rem 0; }
+  .diagram .dim { color: #78909C; }
+  .diagram .hl { color: #FFCC80; }
+  .diagram .blue { color: #81D4FA; }
+  .diagram .green { color: #A5D6A7; }
+  .diagram .pink { color: #F48FB1; }
+  .file { font-family: 'SF Mono', monospace; background: #ECEFF1; padding: 2px 6px; border-radius: 3px; font-size: 0.9rem; }
+  .concept { background: #E8F5E9; padding: 0.8rem 1rem; border-radius: 6px; margin: 0.8rem 0; border-left: 3px solid #4CAF50; }
+  .warn { background: #FFF3E0; padding: 0.8rem 1rem; border-radius: 6px; margin: 0.8rem 0; border-left: 3px solid #FF9800; }
+  .info { background: #E3F2FD; padding: 0.8rem 1rem; border-radius: 6px; margin: 0.8rem 0; border-left: 3px solid #2196F3; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin: 1rem 0; }
+  .compare > div { padding: 0.8rem; border-radius: 6px; }
+  .compare .left { background: #E8F5E9; border: 1px solid #A5D6A7; }
+  .compare .right { background: #FFF3E0; border: 1px solid #FFCC80; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.88rem; }
+  th, td { border: 1px solid #E0E0E0; padding: 8px 12px; text-align: left; }
+  th { background: #F5F5F5; }
+  code { background: #ECEFF1; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #263238; color: #A5D6A7; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.82rem; line-height: 1.5; }
+  .cite { font-size: 0.85rem; color: #888; margin-top: 2.5rem; border-top: 1px solid #eee; padding-top: 0.5rem; }
+  .reminder { background: #f5f5f5; padding: 0.8rem 1rem; border-radius: 6px; margin-top: 2rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>📡 第3课：通道二三四 — Events、Plugins、Menu</h1>
+
+<p><strong>目标：</strong>理解 Rust→前端的 3 种推送通信方式，以及 Menu 事件如何工作。</p>
+
+<h2>一、四种通信方式全景对比</h2>
+
+<table>
+  <tr><th>方式</th><th>方向</th><th>有无返回值</th><th>EIDON 中用在哪</th></tr>
+  <tr>
+    <td><strong>① Tauri Command</strong><br><code>invoke('cmd', args)</code></td>
+    <td>前端 → Rust</td>
+    <td>✅ 有（Promise）</td>
+    <td>读写文件、搜索、git操作、索引…（所有功能）</td>
+  </tr>
+  <tr>
+    <td><strong>② Tauri Event</strong><br><code>emit("event", payload)</code></td>
+    <td>Rust → 前端</td>
+    <td>❌ 无（单向推送）</td>
+    <td>文件外部变更通知、索引更新、菜单点击、窗口关闭询问</td>
+  </tr>
+  <tr>
+    <td><strong>③ Plugin API</strong><br>（封装好的命令+事件）</td>
+    <td>双向</td>
+    <td>依插件而定</td>
+    <td>原生对话框、剪贴板、通知、窗口状态</td>
+  </tr>
+  <tr>
+    <td><strong>④ Menu Event</strong><br>原生菜单点击</td>
+    <td>Rust → 前端</td>
+    <td>❌ 无</td>
+    <td>File/Edit/View/Help 菜单 → App.vue dispatchMenuAction</td>
+  </tr>
+  <tr>
+    <td><strong>⑤ Dev Bridge</strong><br>（仅 debug）</td>
+    <td>外部 → Rust → WebView</td>
+    <td>✅ 有</td>
+    <td>eidon-dev-mcp 驱动 UI 测试</td>
+  </tr>
+</table>
+
+<h2>二、通道②：Event 事件 — Rust 主动推送前端</h2>
+
+<div class="compare">
+<div class="left">
+<strong>Command（前端→Rust）</strong><br>
+<code>invoke()</code> → 返回 Promise<br>
+前端主动调用，等待响应
+</div>
+<div class="right">
+<strong>Event（Rust→前端）</strong><br>
+Rust 主动推送，前端被动收听<br>
+没有返回值，fire-and-forget
+</div>
+</div>
+
+<h3>EIDON 中的所有 Event</h3>
+
+<table>
+  <tr><th>事件名</th><th>发送位置（Rust）</th><th>接收位置（前端）</th><th>触发场景</th></tr>
+  <tr>
+    <td><code>eidon://menu</code></td>
+    <td><code>runner.rs</code> on_menu_event</td>
+    <td>App.tsx → dispatchMenuAction</td>
+    <td>用户点击原生菜单项</td>
+  </tr>
+  <tr>
+    <td><code>eidon://close-requested</code></td>
+    <td><code>runner.rs</code> CloseRequested</td>
+    <td>App.tsx</td>
+    <td>用户点窗口关闭按钮</td>
+  </tr>
+  <tr>
+    <td><code>eidon://file-changed</code></td>
+    <td><code>watcher.rs</code> 回调</td>
+    <td>useFileWatcher.ts</td>
+    <td>外部程序修改了已打开的标签页文件</td>
+  </tr>
+  <tr>
+    <td><code>eidon://index-updated</code></td>
+    <td><code>workspace_index.rs</code> handle_event</td>
+    <td>workspaceIndex store</td>
+    <td>文件创建/修改/删除后重新索引完成</td>
+  </tr>
+</table>
+
+<h3>sender 端（Rust）</h3>
+
+<pre><span class="dim">// ===== 方式 A：在 Setup 中发事件 =====</span>
+<span class="dim">// runner.rs</span>
+.on_menu_event(|app_handle, event| {
+    let id = event.id().0.clone();
+    let _ = app_handle.<span class="hl">emit</span>(<span class="green">"eidon://menu"</span>, id);
+    <span class="dim">// emit 返回 Result，用 let _ =  忽略（事件发送失败不致命）</span>
+})
+
+<span class="dim">// ===== 方式 B：在命令中发事件 =====</span>
+<span class="dim">// workspace_index.rs</span>
+fn workspace_index_init_inner(app: AppHandle, folder: String) -> Result&lt;usize, String&gt; {
+    <span class="dim">// ... 扫描索引 ...</span>
+    let _ = app.<span class="hl">emit</span>(<span class="green">"eidon://index-updated"</span>, &<span class="green">"init"</span>);
+    Ok(count)
+}
+
+<span class="dim">// ===== 方式 C：在 watcher 回调中发事件 =====</span>
+<span class="dim">// watcher.rs — 文件系统变更回调（在 notify 的线程中）</span>
+let _ = app_handle.<span class="hl">emit</span>(<span class="green">"eidon://file-changed"</span>, original_path);</pre>
+
+<h3>receiver 端（前端）</h3>
+
+<pre><span class="dim">// ===== App.tsx — 监听菜单和关闭事件 =====</span>
+import { listen } from <span class="green">'@tauri-apps/api/event'</span>;
+
+useEffect(() => {
+  const unlistens: UnlistenFn[] = [];
+
+  listen&lt;string&gt;(<span class="green">'eidon://menu'</span>, (event) => {
+    const menuId = event.payload;  <span class="dim">// "file.save" / "view.toggleTheme" …</span>
+    dispatchMenuAction(menuId);
+  }).then(fn => unlistens.push(fn));
+
+  listen(<span class="green">'eidon://close-requested'</span>, () => {
+    checkUnsavedTabs();
+  }).then(fn => unlistens.push(fn));
+
+  return () => { unlistens.forEach(f => f()); };  <span class="dim">// 清理</span>
+}, []);</pre>
+
+<div class="warn">
+<strong>⚠️ 注意：</strong> <code>listen()</code> 返回一个 <code>Promise&lt;UnlistenFn&gt;</code>，需要在组件卸载时调用 <code>unlisten()</code> 取消监听，否则内存泄漏。
+</div>
+
+<h2>三、通道③：Plugin 插件</h2>
+
+<div class="concept">
+<strong>Plugin 本质上是 "预制的 Tauri Command 集合"。</strong>社区为常见需求（文件对话框、剪贴板、通知…）写了现成的 Rust 代码和前端的 JS wrapper，你只需安装和初始化即可使用。
+</div>
+
+<h3>EIDON 使用的插件一览</h3>
+
+<table>
+  <tr><th>插件</th><th>Cargo.toml 依赖</th><th>初始化位置</th><th>前端使用方式</th></tr>
+  <tr>
+    <td>Dialog 对话框</td>
+    <td><code>tauri-plugin-dialog</code></td>
+    <td><code>.plugin(tauri_plugin_dialog::init())</code></td>
+    <td><code>import { open } from '@tauri-apps/plugin-dialog'</code></td>
+  </tr>
+  <tr>
+    <td>Clipboard 剪贴板</td>
+    <td><code>tauri-plugin-clipboard-manager</code></td>
+    <td><code>.plugin(tauri_plugin_clipboard_manager::init())</code></td>
+    <td><code>import { writeText } from '@tauri-apps/plugin-clipboard-manager'</code></td>
+  </tr>
+  <tr>
+    <td>Notification 通知</td>
+    <td><code>tauri-plugin-notification</code></td>
+    <td><code>.plugin(tauri_plugin_notification::init())</code></td>
+    <td>定时器提醒：到点弹原生系统通知</td>
+  </tr>
+  <tr>
+    <td>Opener 打开文件</td>
+    <td><code>tauri-plugin-opener</code></td>
+    <td><code>.plugin(tauri_plugin_opener::init())</code></td>
+    <td>用默认程序打开文件/URL</td>
+  </tr>
+  <tr>
+    <td>Window State</td>
+    <td><code>tauri-plugin-window-state</code></td>
+    <td><code>.plugin(tauri_plugin_window_state::Builder::default()...)</code></td>
+    <td>自动保存/恢复窗口位置、大小、最大化状态</td>
+  </tr>
+</table>
+
+<div class="info">
+<strong>插件的通信原理：</strong>插件内部也是通过 <code>#[tauri::command]</code> + <code>emit</code> 来实现通信的。比如 dialog 插件暴露了 <code>open()</code> 命令让前端打开文件选择器，然后用事件把结果传回来。你安装的插件会自动注册到应用中，无需手动写 <code>generate_handler!</code>。
+</div>
+
+<h2>四、通道④：Menu Event — 原生菜单 → 前端</h2>
+
+<div class="diagram">
+<span class="dim">// 1. Rust 构建多语言菜单（runner.rs::build_app_menu()）</span>
+let save = MenuItemBuilder::<span class="blue">with_id</span>(<span class="green">"file.save"</span>, s.save)
+    .accelerator(<span class="green">"CmdOrCtrl+S"</span>)
+    .build(app)?;
+
+<span class="dim">// 2. 注册全局菜单事件转发器</span>
+.on_menu_event(|app_handle, event| {
+    let id = event.<span class="blue">id()</span>.0.clone();  <span class="dim">// "file.save"</span>
+    let _ = app_handle.<span class="hl">emit</span>(<span class="green">"eidon://menu"</span>, id);
+    <span class="dim">//           ↑ 用 Event 通道转发给前端</span>
+})
+
+<span class="dim">// 3. 前端收到 event.payload → dispatchMenuAction("file.save")</span>
+<span class="dim">//    → 触发编辑器保存当前文件</span>
+</div>
+
+<p><strong>关键设计：</strong>Menu Event 本质上复用了 Event 通道。Rust 不直接执行业务逻辑，只是把菜单项 ID 转发给前端，由前端 JS 决定做什么。这保持了「前端拥有所有业务逻辑」的架构原则。</p>
+
+<h2>五、通道⑤：Dev Bridge（仅 debug）</h2>
+
+<div class="info">
+<strong>这是一个仅 debug 构建可用的 HTTP JSON-RPC 服务器</strong>，监听 <code>127.0.0.1</code> 的随机端口。<br>
+用途：外部工具（eidon-dev-mcp）可以通过 HTTP POST <code>/eval</code> 来在 WebView 中执行 JS 并获取返回值。
+</div>
+
+<pre><span class="dim">// 外部工具发送 HTTP 请求</span>
+POST /eval
+Authorization: Bearer &lt;token&gt;
+{ <span class="green">"script"</span>: <span class="green">"document.querySelector('.editor').innerText"</span> }
+
+<span class="dim">// Bridge 通过 WebviewWindow::eval() 在 WebView 中执行</span>
+<span class="dim">// WebView 执行后 fetch POST 回 /result/&lt;id&gt;</span>
+<span class="dim">// Bridge 把结果返回给外部调用者</span>
+
+→ { <span class="green">"ok"</span>: true, <span class="green">"value"</span>: <span class="green">"# Hello World\n\nThis is a note."</span> }
+</pre>
+
+<div class="warn">
+<strong>⚠️ 仅 debug_assertions 编译：</strong>Release 构建中这个模块完全不存在，<code>nm</code> 命令检查二进制应得零符号。
+</div>
+
+<h2>✅ 本课收获</h2>
+<ul>
+  <li>你能区分 Command（前端→Rust，有返回值）和 Event（Rust→前端，单向推送）</li>
+  <li>你能列出 EIDON 中所有 4 个 Event 的名称和用途</li>
+  <li>你理解了 Plugin 本质是预制的 Command 集合，通过 <code>.plugin()</code> 安装</li>
+  <li>你理解了 Menu 点击通过 Event 通道转发给前端处理的架构设计</li>
+  <li>你知道了 Dev Bridge 是 debug 专属的外部 HTTP→JS 桥接</li>
+</ul>
+
+<div class="cite">📖 推荐一手资料：<a href="https://v2.tauri.app/develop/events/">Tauri 2 Events 文档</a> · <a href="https://v2.tauri.app/learn/menu/">Tauri 2 Menu 文档</a></div>
+<div class="reminder">💡 有疑问？直接问我。例如：「emit 和 emit_to 的区别是什么？」「如何写一个自己的 Tauri plugin？」</div>
+
+</body>
+</html>

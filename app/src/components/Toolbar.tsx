@@ -37,12 +37,14 @@ export function Toolbar({ onOpenPalette, onOpenHelp }: ToolbarProps) {
   const [copyOpen, setCopyOpen] = useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
   const [pomoOpen, setPomoOpen] = useState(false);
+  const [wsSwitcherOpen, setWsSwitcherOpen] = useState(false);
 
   const newBtnRef = useRef<HTMLButtonElement | null>(null);
   const recentBtnRef = useRef<HTMLButtonElement | null>(null);
   const exportBtnRef = useRef<HTMLButtonElement | null>(null);
   const insertBtnRef = useRef<HTMLButtonElement | null>(null);
   const copyBtnRef = useRef<HTMLButtonElement | null>(null);
+  const wsBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const [menuPos, setMenuPos] = useState<{ top: number; left?: number; right?: number } | null>(null);
   const floatStyle: React.CSSProperties | undefined = (() => {
@@ -70,6 +72,7 @@ export function Toolbar({ onOpenPalette, onOpenHelp }: ToolbarProps) {
     setCopyOpen(false);
     setInsertOpen(false);
     setPomoOpen(false);
+    setWsSwitcherOpen(false);
   }
 
   function togglePomo() {
@@ -320,6 +323,77 @@ export function Toolbar({ onOpenPalette, onOpenHelp }: ToolbarProps) {
           </div>
         </div>
       </div>
+
+      {/* 工作区快速切换（原在文件树内，移至此处以方便触达） */}
+      {workspace.currentFolder && (
+        <div className="toolbar__group">
+          <div className="copy-split">
+            <button
+              ref={wsBtnRef}
+              className="copy-split__main"
+              title={workspace.currentFolder}
+              onClick={() => {
+                closeAllDropdowns();
+                positionMenuFromButton(wsBtnRef.current);
+                setWsSwitcherOpen((v) => !v);
+              }}
+            >
+              <Icon name="folder" size={14} />
+              <span className="toolbar__ws-name">
+                {workspace.currentFolder.split(/[\\/]/).filter(Boolean).pop() ?? workspace.currentFolder}
+              </span>
+            </button>
+            <div className="dropdown">
+              <button className="copy-split__arrow" onClick={() => {
+                closeAllDropdowns();
+                positionMenuFromButton(wsBtnRef.current);
+                setWsSwitcherOpen((v) => !v);
+              }} title={t('explorer.recentFolders')}>
+                <Icon name="chevron-down" size={10} />
+              </button>
+              {wsSwitcherOpen && createPortal(
+                <div className="dropdown__menu" style={floatStyle}>
+                  <div className="dropdown__label">{t('explorer.recentFolders')}</div>
+                  {workspace.recentFolders.map((f) => {
+                    const parts = f.split(/[\\/]/).filter(Boolean);
+                    const name = parts[parts.length - 1] ?? f;
+                    const parent = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+                    return (
+                      <button
+                        key={f}
+                        className={`dropdown__item${f === workspace.currentFolder ? ' dropdown__item--active' : ''}`}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setWsSwitcherOpen(false);
+                          if (f !== workspace.currentFolder) workspace.setFolder(f);
+                        }}
+                      >
+                        <span className="dropdown__name">{name}</span>
+                        <span className="dropdown__hint">{parent}</span>
+                      </button>
+                    );
+                  })}
+                  {workspace.recentFolders.length === 0 && (
+                    <div className="dropdown__empty">{t('explorer.noRecentFolders')}</div>
+                  )}
+                  <div className="dropdown__sep" />
+                  <button
+                    className="dropdown__item"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setWsSwitcherOpen(false);
+                      void files.openFolder();
+                    }}
+                  >
+                    <Icon name="folder" size={14} /> {t('explorer.openFolder')}
+                  </button>
+                </div>,
+                document.body,
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="toolbar__spacer"></div>
 

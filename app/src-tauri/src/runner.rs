@@ -27,17 +27,10 @@ mod git_prune;
 #[path = "knowledge/cjk_proofread.rs"]
 mod cjk_proofread;
 
-// v2.6 GitHub-backed sync — push/pull a workspace to a user-owned GitHub repo.
-#[path = "git/github_sync.rs"]
-mod github_sync;
-
 // v2.6.1 cloud-folder detection + cross-device session restore.
 #[path = "git/cloud_folder.rs"]
 mod cloud_folder;
 
-// v2.6.3 workspace-level E2EE.
-#[path = "git/crypto.rs"]
-mod crypto;
 
 // v2.3 dev WebDriver bridge — debug builds only. Module file itself is
 // `#[cfg(debug_assertions)]`-gated, so this `mod` line is too.
@@ -588,32 +581,11 @@ pub fn run() {
             git_prune::git_repo_size,
             git_prune::git_prune_history,
             cjk_proofread::cjk_proofread,
-            github_sync::github_set_token,
-            github_sync::github_clear_token,
-            github_sync::github_has_token,
-            github_sync::github_user,
-            github_sync::github_list_repos,
-            github_sync::github_create_vault_repo,
-            github_sync::github_link_workspace,
-            github_sync::github_set_config,
-            github_sync::github_unlink_workspace,
-            github_sync::github_enable_encryption,
-            github_sync::github_sync_status,
-            github_sync::github_push,
-            github_sync::github_pull,
-            github_sync::github_resolve_conflict,
-            github_sync::proxy_get,
-            github_sync::proxy_set,
             cloud_folder::cloud_folder_detect,
             cloud_folder::device_id_get_or_create,
             cloud_folder::session_save,
             cloud_folder::session_load,
             cloud_folder::session_list_others,
-            crypto::crypto_status,
-            crypto::crypto_set_passphrase,
-            crypto::crypto_clear_passphrase,
-            crypto::crypto_encrypt_for_push,
-            crypto::crypto_decrypt_after_pull,
             watcher::watch_file,
             watcher::unwatch_file,
         ])

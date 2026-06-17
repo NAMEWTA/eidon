@@ -4,8 +4,8 @@
  * getState() 读 store（确保作用于当前状态，而非渲染时快照）；composable 句柄
  * （files/exporter/daily/pandoc/bases/auto）为稳定模块级集合。
  *
- * 注意：GitHub Sync 命令已按 EIDON 阶段边界移除（ADR-0018），
- * 相关 composable（useGithubSync）代码保留不动。
+ * 注意：GitHub Sync 功能（含命令面板 push/pull 入口、Settings 同步面板、
+ * Rust 后端 github_sync/crypto 模块）已全链路删除（见 ADR-0018/0019）。
  */
 import { useFiles } from './useFiles';
 import { useSettingsStore } from '../stores/settings';

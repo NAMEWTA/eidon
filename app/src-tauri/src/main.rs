@@ -12,8 +12,8 @@ fn main() {
     // panic terminates the entire app at startup.
     //
     // First seen as the v1.1.2 Windows launch crash with the (now-gone)
-    // tauri-plugin-aptabase. The defensive guard stays because git sync /
-    // crypto (reqwest) rely on the same multi-thread runtime being available.
+    // tauri-plugin-aptabase. The defensive guard stays for any plugin or
+    // async setup code that relies on a multi-thread runtime being available.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
