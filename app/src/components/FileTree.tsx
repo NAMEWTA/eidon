@@ -590,8 +590,8 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
       loadDir(path),
       scanNodes(path),
       scanConsistency(path),
-      useTemplatesStore.getState().init(path).catch((error) => {
-        console.warn('init templates failed', error);
+      useTemplatesStore.getState().load(path).catch((error) => {
+        console.warn('load templates failed', error);
       }),
     ]);
     if (useWorkspaceStore.getState().currentFolder !== path) return;

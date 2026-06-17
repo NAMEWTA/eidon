@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { createWorkspaceFileStore } from '../../core/bridge/file';
+import { EIDON_TEMPLATES_DIR } from '../../core/contracts';
 import {
   createTemplate,
   deleteTemplate,
@@ -56,6 +57,12 @@ export const useTemplatesStore = create<TemplatesState & TemplatesActions>()((se
     set({ loading: true, error: null });
     try {
       const store = createWorkspaceFileStore(root);
+      // 工作区尚未初始化 .eidon/templates/ 时返回空列表，
+      // 不在此时触发磁盘写入（模板播种延迟到用户显式创建内容/打开模板管理时）。
+      if (!(await store.exists(EIDON_TEMPLATES_DIR))) {
+        set({ templates: [], invalidTemplates: [], loading: false });
+        return [];
+      }
       const [templates, invalidTemplates] = await Promise.all([
         listTemplates(store),
         listInvalidTemplates(store),

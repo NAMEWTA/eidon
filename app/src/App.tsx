@@ -509,13 +509,8 @@ export function App() {
       if (ws.currentFolder !== prevIdxFolder) {
         prevIdxFolder = ws.currentFolder;
         useWorkspaceIndexStore.getState().setFolder(ws.currentFolder).catch(() => {});
-        if (ws.currentFolder) {
-          useNodesStore.getState().ensureDefaultInbox(ws.currentFolder)
-            .then(() => {
-              window.dispatchEvent(new CustomEvent('eidon:saved', { detail: { filePath: ws.currentFolder } }));
-            })
-            .catch((error) => console.warn('default inbox init failed', error));
-        }
+        // 工作区打开保持只读：不在此时播种模板或创建收件箱。
+        // 模板初始化与收件箱创建延迟到用户显式创建内容/打开模板管理/触发迁移时再执行。
       }
       if (s.spellcheckEnabled && !spellcheckLoaded) {
         invoke('spellcheck_init', { lang: 'en_US' })

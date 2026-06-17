@@ -2,7 +2,10 @@
  * useCommands（从 Vue composable 迁移为 React hook）。构建命令面板/QuickSwitcher
  * 的命令列表（id/title/hint/shortcut/run 逐字保留）。run 回调在**执行时**经
  * getState() 读 store（确保作用于当前状态，而非渲染时快照）；composable 句柄
- * （files/exporter/daily/pandoc/bases/auto/ghSyncOps）为稳定模块级集合。
+ * （files/exporter/daily/pandoc/bases/auto）为稳定模块级集合。
+ *
+ * 注意：GitHub Sync 命令已按 EIDON 阶段边界移除（ADR-0018），
+ * 相关 composable（useGithubSync）代码保留不动。
  */
 import { useFiles } from './useFiles';
 import { useSettingsStore } from '../stores/settings';
@@ -23,8 +26,6 @@ import { useAutoCommit } from './useAutoCommit';
 import { useWorkspaceIndexStore } from '../stores/workspaceIndex';
 import { useGitHistoryStore } from '../stores/gitHistory';
 import { useWorkspaceStore } from '../stores/workspace';
-import { useGithubSyncStore } from '../stores/githubSync';
-import { useGithubSync } from './useGithubSync';
 import { useI18n } from '../i18n';
 
 export interface Command {
@@ -33,22 +34,6 @@ export interface Command {
   hint?: string;
   shortcut?: string;
   run: () => void | Promise<void>;
-}
-
-/** GitHub file URL（活动 tab 在 GitHub 仓库内时）。读 store 取当前值。 */
-function activeGithubFileUrl(): string | null {
-  const folder = useWorkspaceStore.getState().currentFolder;
-  const tab = useTabsStore.getState().activeTab();
-  if (!folder || !tab?.filePath) return null;
-  const remote = useGithubSyncStore.getState().status?.remote_url ?? '';
-  const m = remote.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/i);
-  if (!m) return null;
-  const sep = tab.filePath.includes('\\') ? '\\' : '/';
-  const folderNorm = folder.endsWith(sep) ? folder : folder + sep;
-  if (!tab.filePath.startsWith(folderNorm)) return null;
-  const rel = tab.filePath.slice(folderNorm.length).split('\\').join('/');
-  const encodedPath = rel.split('/').map((part) => encodeURIComponent(part)).join('/');
-  return `https://github.com/${m[1]}/${m[2]}/blob/HEAD/${encodedPath}`;
 }
 
 /** 替换活动编辑器内容（中文转换等命令用）。 */
@@ -71,7 +56,6 @@ export function useCommands(): Command[] {
   const pandoc = usePandocExport();
   const bases = useBasesView();
   const auto = useAutoCommit();
-  const ghSyncOps = useGithubSync();
 
   const all: Command[] = [
     { id: 'file.new', title: t('cmd.fileNew'), shortcut: 'Ctrl+N', run: () => files.newFile() },
@@ -240,23 +224,6 @@ export function useCommands(): Command[] {
     },
     { id: 'history.commitNow', title: t('cmd.historyCommitNow'), hint: t('cmd.historyCommitNowHint'), run: () => auto.commitNow() },
     { id: 'history.toggleAutoGit', title: t('cmd.historyToggleAutoGit'), run: () => useSettingsStore.getState().toggleAutoGit() },
-
-    { id: 'sync.pushNow', title: t('cmd.syncPushNow'), hint: t('cmd.syncPushNowHint'), run: () => ghSyncOps.pushNow() },
-    { id: 'sync.pullNow', title: t('cmd.syncPullNow'), hint: t('cmd.syncPullNowHint'), run: () => ghSyncOps.pullNow() },
-    {
-      id: 'sync.copyShareLink',
-      title: t('cmd.syncCopyShareLink'),
-      hint: t('cmd.syncCopyShareLinkHint'),
-      run: async () => {
-        const url = activeGithubFileUrl();
-        if (!url) {
-          useToastsStore.getState().warning(t('cmd.githubLinkNeedRepo'));
-          return;
-        }
-        await writeText(url);
-        useToastsStore.getState().success(t('cmd.githubLinkCopied'));
-      },
-    },
 
     {
       id: 'help.welcomeTour',
