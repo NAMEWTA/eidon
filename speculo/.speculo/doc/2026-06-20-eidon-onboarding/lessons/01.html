@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 01 · EIDON 项目全景与四层架构</title>
+<style>
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1.5rem; font-family: system-ui, -apple-system, sans-serif; line-height: 1.8; color: #1a1a1a; }
+  h1 { font-size: 1.8rem; margin-top: 2.5rem; border-bottom: 2px solid #2563eb; padding-bottom: 0.4rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; color: #2563eb; }
+  h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+  pre { background: #f4f4f5; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.9rem; line-height: 1.5; }
+  code { background: #f4f4f5; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
+  pre code { background: none; padding: 0; }
+  blockquote { border-left: 3px solid #2563eb; margin-left: 0; padding-left: 1rem; color: #555; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #e5e7eb; padding: 0.5rem 0.8rem; text-align: left; font-size: 0.9rem; }
+  th { background: #f0f0f0; font-weight: 600; }
+  .win { background: #ecfdf5; border-left: 4px solid #10b981; padding: 0.8rem 1rem; border-radius: 6px; margin: 1.5rem 0; font-weight: 600; }
+  .arch { background: #1e293b; color: #e2e8f0; padding: 1.2rem; border-radius: 10px; font-family: 'Courier New', monospace; font-size: 0.82rem; line-height: 1.6; white-space: pre; overflow-x: auto; }
+  .cite { font-size: 0.85rem; color: #888; margin-top: 2rem; border-top: 1px solid #eee; padding-top: 0.5rem; }
+  .reminder { background: #eff6ff; padding: 0.8rem 1rem; border-radius: 6px; margin-top: 2rem; font-size: 0.9rem; border: 1px solid #bfdbfe; }
+  .nav { display: flex; justify-content: space-between; margin-top: 3rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>📖 Lesson 01 · EIDON 项目全景与四层架构</h1>
+
+<p><strong>耗时：</strong>~12 分钟 &nbsp;|&nbsp; <strong>先修：</strong>Electron 基础概念（主进程/渲染进程/preload）</p>
+
+<div class="win">🏆 本课胜利：你能画出完整的四层架构图，并说出每一层「能 import 什么、不能 import 什么」。</div>
+
+<h2>1. EIDON 是什么</h2>
+
+<p><strong>EIDON</strong> = 本地优先（local-first）的结构化知识 IDE。给本地 Markdown 知识库装上<strong>固定三层节点拓扑 + 多模板 schema</strong> 的数据地基。技术栈：</p>
+
+<table>
+  <tr><th>层</th><th>技术</th><th>位置</th></tr>
+  <tr><td>前端（纯 UI）</td><td>React 19 + TypeScript + Tailwind CSS v4 + Zustand v5 + shadcn/ui</td><td><code>app/frontend/</code></td></tr>
+  <tr><td>桥接（契约边界）</td><td>typed IPC 包装器</td><td><code>app/bridge/</code></td></tr>
+  <tr><td>共享（数据模型）</td><td>纯 TypeScript（框架无关）</td><td><code>app/shared/</code></td></tr>
+  <tr><td>后端（main 进程）</td><td>Electron main（Node）+ 85 条 typed IPC</td><td><code>app/backend/</code></td></tr>
+  <tr><td>接缝</td><td>preload <code>contextBridge</code> 暴露 <code>window.eidon</code></td><td><code>app/preload/</code></td></tr>
+</table>
+
+<blockquote>💡 历史：由 SoloMD 1.x → EIDON 2.0 颠覆性重构；Tauri 2/Rust → Electron 全 TypeScript（ADR-0024）；三层 → 四层（ADR-0025）。当前不背任何向后兼容包袱。</blockquote>
+
+<h2>2. 核心架构：四层单向依赖</h2>
+
+<p>这是整个项目最重要的图。理解它，所有代码文件的位置都能推出来：</p>
+
+<div class="arch">
+┌─────────────────────────────────────────────────────┐
+│  frontend/  (React UI 纯渲染)                        │
+│  · 组件 components/  · 状态 stores/                  │
+│  · 逻辑 composables/  · 工具 lib/                    │
+│  ┌──────────────────────────────────────────┐        │
+│  │  只 import: bridge/ + shared/ + window.eidon       │
+│  │  禁止: backend/*, preload, electron, react在shared │
+│  └──────────────────────────────────────────┘        │
+└─────────────┬───────────────────────────────────────┘
+              │  window.eidon.invoke(channel, req)
+              │  (唯一接缝 — preload/index.ts contextBridge)
+┌─────────────▼───────────────────────────────────────┐
+│  bridge/  (前后端契约边界)                            │
+│  · ipc/client.ts  · ipc/nodes.ts  · ipc/todos.ts ... │
+│  ┌──────────────────────────────────────────┐        │
+│  │  只 import: shared/ + window.eidon               │
+│  │  禁止: backend/*, preload, electron, react       │
+│  └──────────────────────────────────────────┘        │
+└─────────────┬───────────────────────────────────────┘
+              │  IPC (ipcMain.handle / webContents.send)
+┌─────────────▼───────────────────────────────────────┐
+│  backend/  (Electron main 进程)                      │
+│  ┌─────────────────────────────────────────────┐     │
+│  │  backend/ipc/        IPC接入 (可用electron)   │     │
+│  │  handlers/editor.handlers.ts                 │     │
+│  │  handlers/nodes.handlers.ts  ... 9个handler  │     │
+│  │        │                                      │     │
+│  │        ▼                                      │     │
+│  │  backend/services/   编排层 (禁electron)       │     │
+│  │  node-service.ts  todo-service.ts  ... 5个    │     │
+│  │        │          │                           │     │
+│  │        ▼          ▼                           │     │
+│  │  backend/domain/    业务规则 (禁electron)      │     │
+│  │  nodes/ templates/ todos/ consistency/ ...    │     │
+│  │        │                                      │     │
+│  │  backend/capabilities/ 底层资源 (禁electron)   │     │
+│  │  editor/ knowledge/ git/ runtime-paths.ts     │     │
+│  └─────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────┘
+              ▲
+┌─────────────┴───────────────────────────────────────┐
+│  shared/  (框架无关叶子 — 四层均可 import)             │
+│  models/ (纯类型) contracts/ (zod) ipc/ (通道契约)    │
+│  utils/ (纯函数: id/date/errors/path/reminders)       │
+│  禁止: react, zustand, electron                      │
+└─────────────────────────────────────────────────────┘
+</div>
+
+<h2>3. backend 内部的四级联</h2>
+
+<p>backend 内部不是平的，有严格的单向级联：</p>
+
+<pre><code>ipc/ ──→ services/ ──→ { domain/, capabilities/ }
+ ↑                      ↑              ↑
+ 可用 electron          禁 electron   禁 electron
+ 对接 preload           组合两者      仅 node:* + 库</code></pre>
+
+<ul>
+  <li><strong>ipc/</strong> — 唯一可用 <code>electron</code> 的 backend 层（另一处是 shell/），接 IPC 请求，转发给 service</li>
+  <li><strong>services/</strong> — 编排层，组合 domain 业务规则 + capabilities 底层能力（+ emit 事件）</li>
+  <li><strong>domain/</strong> — 纯业务规则，仅经<strong>注入端口</strong>（来自 shared/models/ 的接口）+ shared。可独立单测</li>
+  <li><strong>capabilities/</strong> — 底层资源，只 <code>node:*</code> + 库（isomorphic-git/chokidar/nspell）+ emit。可独立单测</li>
+</ul>
+
+<h2>4. 关键约束速记</h2>
+
+<table>
+  <tr><th>约束</th><th>详情</th></tr>
+  <tr><td>唯一接缝</td><td><code>preload/index.ts</code> → <code>window.eidon</code>，禁止 frontend/bridge 直接 import electron</td></tr>
+  <tr><td>全局禁止</td><td><code>@tauri-apps/*</code>（Tauri 已删）、frontend/bridge 中 import <code>electron</code></td></tr>
+  <tr><td>shared 纯洁性</td><td>禁 react/zustand/electron，纯类型+纯函数</td></tr>
+  <tr><td>IPC 穷尽性</td><td>85 通道在 <code>shared/ipc/channels.ts</code> 声明，<code>backend/ipc/register.ts</code> 启动时校验全覆盖</td></tr>
+  <tr><td>机器强制</td><td><code>eslint-plugin-boundaries</code> + <code>no-restricted-imports</code>，CI 拦截</td></tr>
+</table>
+
+<h2>5. 与三层【节点】的区别</h2>
+
+<p>「三层」在本项目是双关词，<strong>必须显式限定</strong>：</p>
+<ul>
+  <li><strong>【代码】分层（四层）</strong> = frontend → bridge → backend + shared（本课内容）</li>
+  <li><strong>【节点】三层</strong> = L1 → L2 → L3 数据节点层级（Lesson 04 讲）</li>
+</ul>
+
+<div class="reminder">
+💡 <strong>检验你的理解：</strong>不看上面，默画出四层架构图，并说出每层的 import 白名单和黑名单。画完了再回来对照。有问题直接问我。
+</div>
+
+<div class="cite">📖 推荐一手资料：<a href="../../../../AGENTS.md">AGENTS.md §2 架构与边界</a> · <a href="../../.speculo/.config/adr/0025-app-directory-frontend-bridge-backend.md">ADR-0025</a></div>
+
+<div class="nav">
+  <span></span>
+  <a href="02.html">下一课：目录结构详解 →</a>
+</div>
+
+</body>
+</html>

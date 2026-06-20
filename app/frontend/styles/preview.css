@@ -1,0 +1,264 @@
+/* 阅读区 / Preview 渲染面 CSS（强约束·像素保真，ADR-0010）。
+ *
+ * 逐字迁移自 Preview 的非 scoped <style> 块。markdown-it 注入的 HTML 经
+ * dangerouslySetInnerHTML 渲染，React 无法对其挂 scoped 属性，故沿用手工以
+ * `.preview-content` 前缀约束作用域。 */
+.preview-host {
+  height: 100%;
+  overflow: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+}
+:where(.preview-content) {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px 36px 64px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  /* v4.3.0 PR #74 — preview-only font size; driven by settings.previewFontSize
+     via the `--content-font-size` CSS custom property set by dom-effects. */
+  font-size: var(--content-font-size, 15px);
+  line-height: 1.7;
+}
+.preview-content--fit {
+  max-width: none;
+  padding: 28px 16px 64px;
+}
+:where(.preview-content) h1,
+:where(.preview-content) h2,
+:where(.preview-content) h3,
+:where(.preview-content) h4 {
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 1.6em 0 0.5em;
+}
+:where(.preview-content) h1 {
+  font-size: 2em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+:where(.preview-content) h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.25em;
+}
+:where(.preview-content) h3 { font-size: 1.2em; }
+:where(.preview-content) p { margin: 0.8em 0; }
+:where(.preview-content) a {
+  color: var(--accent);
+  text-decoration: none;
+}
+:where(.preview-content) a:hover { text-decoration: underline; }
+:where(.preview-content) code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-hover);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+:where(.preview-content) pre {
+  font-family: var(--font-mono);
+  background: var(--bg-hover);
+  padding: 14px 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+:where(.preview-content) pre code {
+  font-family: var(--font-mono);
+  background: transparent;
+  padding: 0;
+}
+/* v4.3.0 issue #65: optional line numbers for fenced code blocks. */
+.preview-content.cb-numbered-on pre.cb-numbered {
+  counter-reset: cb-line;
+  padding-left: 0;
+}
+.preview-content.cb-numbered-on pre.cb-numbered code {
+  display: block;
+}
+.preview-content.cb-numbered-on pre.cb-numbered code .cb-line {
+  counter-increment: cb-line;
+  display: block;
+  padding-left: 3.4em;
+  position: relative;
+}
+.preview-content.cb-numbered-on pre.cb-numbered code .cb-line::before {
+  content: counter(cb-line);
+  position: absolute;
+  left: 0;
+  width: 2.6em;
+  padding-right: 0.6em;
+  text-align: right;
+  color: var(--text-faint);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+:where(.preview-content) blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 1em 0;
+  padding: 0.2em 1em;
+  color: var(--text-muted);
+}
+.preview-content ul,
+.preview-content ol {
+  padding-left: 1.6em;
+  list-style-position: outside;
+}
+.preview-content li {
+  display: list-item;
+}
+/* 有序列表各层级均用 decimal，每个 <ol> 独立计数，子列表从 1 重新开始。 */
+.preview-content ol {
+  list-style-type: decimal !important;
+}
+.preview-content ul {
+  list-style-type: disc !important;
+}
+.preview-content ul ul {
+  list-style-type: circle !important;
+}
+.preview-content ul ul ul {
+  list-style-type: square !important;
+}
+:where(.preview-content) table {
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+:where(.preview-content--fit) table {
+  width: 100%;
+}
+:where(.preview-content) th,
+:where(.preview-content) td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+}
+:where(.preview-content) hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2em 0;
+}
+:where(.preview-content) img {
+  max-width: 100%;
+  border-radius: 4px;
+  cursor: zoom-in;
+  transition: opacity 0.15s;
+}
+:where(.preview-content) img:hover {
+  opacity: 0.85;
+}
+:where(.preview-content) .mermaid-block {
+  display: flex;
+  justify-content: center;
+  margin: 1.5em 0;
+  cursor: zoom-in;
+  transition: opacity 0.15s;
+}
+:where(.preview-content) .mermaid-block:hover {
+  opacity: 0.85;
+}
+:where(.preview-content) .mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
+:where(.preview-content) .mermaid-error {
+  color: var(--danger);
+  background: rgba(214, 69, 69, 0.08);
+  border-left: 3px solid var(--danger);
+}
+:where(.preview-content) .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 1em 0;
+}
+/* Wikilinks (F1, v2.0) */
+.preview-content .md-wikilink {
+  color: var(--accent, #ff9f40);
+  background: color-mix(in srgb, var(--accent, #ff9f40) 10%, transparent);
+  padding: 1px 5px;
+  border-radius: 4px;
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.preview-content .md-wikilink::before {
+  content: '🔗';
+  font-size: 0.75em;
+  margin-right: 3px;
+  opacity: 0.6;
+}
+.preview-content .md-wikilink:hover {
+  background: color-mix(in srgb, var(--accent, #ff9f40) 22%, transparent);
+  text-decoration: underline;
+}
+/* Preview search highlights */
+.preview-content .ps-mark {
+  background: rgba(255, 159, 64, 0.3);
+  color: inherit;
+  padding: 1px 0;
+  border-radius: 2px;
+}
+.preview-content .ps-mark--current {
+  background: var(--accent);
+  color: var(--accent-fg, #fff);
+}
+
+/* ----- v2.4 Reading mode skin ----- */
+.preview-host--reading {
+  border-left: 0;
+  background: var(--bg);
+}
+.preview-content--reading {
+  --font-reading:
+    Charter,
+    "Iowan Old Style",
+    "Source Serif Pro",
+    "Source Serif",
+    "PT Serif",
+    Cambria,
+    "Liberation Serif",
+    "Noto Serif",
+    Georgia,
+    serif;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 64px 32px 96px;
+  font-family: var(--font-reading);
+  font-size: 18px;
+  line-height: 1.8;
+  color: var(--text);
+}
+:where(.preview-content--reading) h1,
+:where(.preview-content--reading) h2,
+:where(.preview-content--reading) h3,
+:where(.preview-content--reading) h4 {
+  font-family: var(--font-reading);
+  letter-spacing: -0.005em;
+}
+:where(.preview-content--reading) h1 {
+  font-size: 2.2em;
+  margin-top: 0;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+:where(.preview-content--reading) h2 {
+  font-size: 1.55em;
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin: 2em 0 0.5em;
+}
+:where(.preview-content--reading) p {
+  margin: 1em 0;
+}
+:where(.preview-content--reading) blockquote {
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+  font-style: italic;
+}
+@media (max-width: 540px) {
+  .preview-content--reading {
+    padding: 32px 18px 64px;
+    font-size: 17px;
+  }
+}

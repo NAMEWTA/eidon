@@ -13,8 +13,9 @@
 
 | 平台 | 安装包 |
 |------|--------|
-| **macOS** (Apple Silicon) | `EIDON_*_macos_arm64.dmg` |
-| **Windows** (x64) | `EIDON_*_x64-setup.exe` |
+| **macOS** (Apple Silicon / Intel) | `EIDON-*.dmg` |
+| **Windows** (x64) | `EIDON-*-setup.exe` / `EIDON-*.msi` |
+| **Linux** (x64) | `EIDON-*.deb` / `EIDON-*.rpm` |
 
 ### macOS 安装说明
 
@@ -53,17 +54,20 @@ xattr -rd com.apple.quarantine /Applications/EIDON.app
 
 | 层 | 技术 |
 |----|------|
-| UI | React 19 + TypeScript + Tailwind CSS v4 + Zustand v5 + shadcn/ui + Vite |
-| 业务核心 | 纯 TypeScript（框架无关，Node 下单测） |
-| 后端 | Rust + Tauri 2 |
+| UI（渲染层） | React 19 + TypeScript + Tailwind CSS v4 + Zustand v5 + shadcn/ui（electron-vite） |
+| 桥接（契约边界） | typed IPC 包装（`eidonInvoke` + 各域 + 平台 API） |
+| 共享层（models/contracts/ipc/utils） | 纯 TypeScript（框架无关，四层共用，Node 下单测） |
+| 后端（main 进程） | Electron main（Node）+ typed IPC + 能力层（iso-git / nspell / jschardet 等纯 JS 库） |
 | 校验 | zod 运行时契约 + golden fixtures |
+| 构建/打包 | electron-vite + electron-builder |
 | 包管理 | pnpm |
+
+> Electron 全 TypeScript + frontend/bridge/backend/shared 单向四层（见 [`AGENTS.md`](AGENTS.md) §2.1 / ADR-0025）。
 
 ### 环境要求
 
 - **Node.js** ≥ 22
 - **pnpm** ≥ 11
-- **Rust** ≥ 1.80（仅桌面开发/构建需要）
 
 ### 快速开始
 
@@ -73,39 +77,36 @@ git clone https://github.com/NAMEWTA/eidon.git
 cd eidon
 
 # 安装依赖
-pnpm install
+pnpm --dir app install
 
-# 启动桌面开发（Tauri，热重载）
+# 启动桌面开发（Electron，热重载）
 pnpm dev
-
-# 或仅前端（浏览器，无需 Rust）
-pnpm dev:web
 ```
 
 ### 常用命令
 
 | 命令 | 说明 |
 |------|------|
-| `pnpm dev` | 桌面开发（Tauri 热重载） |
-| `pnpm dev:web` | 仅前端（浏览器） |
-| `pnpm build` | 类型检查 + 构建（`tsc --noEmit && vite build`） |
-| `pnpm lint` | ESLint 三层边界检查 |
-| `pnpm test:core` | 跑全部 TS core 测试 |
+| `pnpm dev` | 桌面开发（Electron 热重载） |
+| `pnpm typecheck` | 类型检查（renderer + main/preload/shared） |
+| `pnpm build` | 类型检查 + 三进程构建（electron-vite build） |
+| `pnpm lint` | ESLint 四层边界检查 |
+| `pnpm test:core` | 跑核心测试（shared + main 能力层） |
 | `pnpm contracts:check` | 契约 conformance 测试 |
-| `pnpm tauri:build` | 打包桌面应用 |
+| `pnpm dist:mac` / `dist:win` / `dist:linux` | 打包桌面安装包（electron-builder） |
 
-提交前最低：`pnpm lint && pnpm test:core`。
+提交前最低：`pnpm lint && pnpm typecheck && pnpm test:core`。
 
 ### 本地构建安装包
 
 ```bash
-# macOS ARM64
-./scripts/build-mac.sh
+# 当前平台 / 指定平台
+pnpm dist           # 当前 OS
+pnpm dist:mac       # dmg
+pnpm dist:win       # nsis + msi
+pnpm dist:linux     # deb + rpm
 
-# macOS Universal (Intel + Apple Silicon)
-./scripts/build-mac.sh universal
-
-# 或使用 release 脚本（自动 bump 版本 + tag + push 触发 CI）
+# 或使用 release 脚本（自动 bump app/package.json 版本 + tag + push 触发 CI）
 ./scripts/release.sh 0.0.2
 ```
 
@@ -114,10 +115,13 @@ pnpm dev:web
 ## 架构
 
 ```
-app/src (React UI)  →  app/core (TS 业务核心)  →  app/src-tauri (Rust 能力壳)
+frontend(React UI 纯渲染) ──┐
+bridge(IPC 包装) ───────────┤──window.eidon(IPC)──▶ backend/ipc ──▶ backend/services ──▶ backend/{domain, capabilities}
+                             │                                                         node:fs / isomorphic-git / 库
+shared(models + contracts + ipc + utils) ← 四层均可 import（框架无关叶子）
 ```
 
-单向依赖，`core/` 禁 UI 框架，`core/bridge/` 为访问 Tauri 的唯一出口。
+单向依赖（`frontend → bridge → backend(ipc→service→{domain,capability}) + shared`），`shared/` 禁 UI 框架，preload 暴露的 `window.eidon` 为 frontend↔backend 唯一接缝。
 
 详细规范见 [`AGENTS.md`](AGENTS.md)；架构决策记录见 `speculo/.speculo/.config/adr/`。
 

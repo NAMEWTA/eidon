@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 02 · 目录结构逐层详解</title>
+<style>
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1.5rem; font-family: system-ui, -apple-system, sans-serif; line-height: 1.8; color: #1a1a1a; }
+  h1 { font-size: 1.8rem; margin-top: 2.5rem; border-bottom: 2px solid #2563eb; padding-bottom: 0.4rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; color: #2563eb; }
+  h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+  pre { background: #2d2d2d; color: #f8f8f2; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; }
+  code { background: #f4f4f5; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
+  pre code { background: none; padding: 0; color: inherit; }
+  blockquote { border-left: 3px solid #2563eb; margin-left: 0; padding-left: 1rem; color: #555; }
+  .win { background: #ecfdf5; border-left: 4px solid #10b981; padding: 0.8rem 1rem; border-radius: 6px; margin: 1.5rem 0; font-weight: 600; }
+  .tip { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.6rem 1rem; border-radius: 6px; margin: 1rem 0; font-size: 0.9rem; }
+  .cite { font-size: 0.85rem; color: #888; margin-top: 2rem; border-top: 1px solid #eee; padding-top: 0.5rem; }
+  .reminder { background: #eff6ff; padding: 0.8rem 1rem; border-radius: 6px; margin-top: 2rem; font-size: 0.9rem; border: 1px solid #bfdbfe; }
+  .nav { display: flex; justify-content: space-between; margin-top: 3rem; font-size: 0.9rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #e5e7eb; padding: 0.4rem 0.7rem; text-align: left; font-size: 0.85rem; }
+  th { background: #f0f0f0; font-weight: 600; }
+  .dir-highlight { color: #2563eb; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>📂 Lesson 02 · 目录结构逐层详解</h1>
+
+<p><strong>耗时：</strong>~14 分钟 &nbsp;|&nbsp; <strong>先修：</strong>Lesson 01（四层架构）</p>
+
+<div class="win">🏆 本课胜利：给定一个功能名（如「节点扫描」），你能列出它涉及的所有文件路径（从 shared → backend → bridge → frontend）。</div>
+
+<h2>1. 顶层概览</h2>
+
+<pre><code>eidon/
+├── AGENTS.md              ← 架构权威指南（一切规范的起点）
+├── CLAUDE.md              ← Claude Code 入口（指向 AGENTS.md）
+├── README.md              ← 项目说明
+├── package.json           ← 根代理（所有脚本 → app/）
+├── fixtures/              ← golden fixtures（契约测试用）
+│   └── contracts/
+├── scripts/               ← 构建/发布/品牌生成脚本
+├── speculo/               ← 项目元知识（ADR / 规划 / 上下文）
+│   └── .speculo/
+│       ├── .config/adr/   ← 工程层 ADR（17条，编号 0005~0025）
+│       └── dev/           ← 开发规划
+├── docs/                  ← 设计文档
+└── <span class="dir-highlight">app/</span>                   ← 【核心】所有源代码
+    ├── electron.vite.config.ts
+    ├── electron-builder.yml
+    ├── package.json
+    ├── tsconfig.json
+    ├── tsconfig.electron.json
+    ├── tsconfig.node.json
+    ├── eslint.config.mjs
+    ├── <span class="dir-highlight">frontend/</span>        ← 第一层：纯 UI
+    ├── <span class="dir-highlight">bridge/</span>          ← 第二层：契约边界
+    ├── <span class="dir-highlight">backend/</span>         ← 第三层：后端
+    ├── <span class="dir-highlight">shared/</span>          ← 共享层：框架无关
+    ├── <span class="dir-highlight">preload/</span>         ← 接缝：contextBridge
+    └── resources/          ← 打包随附（字典/图标）</code></pre>
+
+<h2>2. frontend/ — 纯 UI 渲染</h2>
+
+<pre><code>frontend/
+├── main.tsx                # React 入口，挂 #app
+├── App.tsx                  # 顶层编排（分栏/磁贴/活动栏）
+├── global.d.ts              # window.eidon 类型声明
+│
+├── components/              # 42 个 React 组件
+│   ├── Editor.tsx           # CodeMirror 编辑器（核心）
+│   ├── Preview.tsx          # Markdown 预览
+│   ├── FileTree.tsx         # 节点感知文件树
+│   ├── TodoListPanel.tsx    # 待办面板
+│   ├── TemplateManager.tsx  # 模板管理
+│   ├── CalendarPanel.tsx    # 日历视图
+│   ├── HistoryPanel.tsx     # 版本历史
+│   ├── EidonPet.tsx         # 像素宠物「小芽」
+│   ├── PaneHost.tsx         # 分栏布局容器
+│   └── ui/                  # shadcn/ui 基础组件 (13个)
+│
+├── stores/                  # 14 个 Zustand Store
+│   ├── nodes.ts             # 节点树缓存 → 调 nodesBridge
+│   ├── templates.ts         # 模板列表缓存 → 调 templatesBridge
+│   ├── todos.ts             # 待办聚合态 → 调 todosBridge
+│   ├── tabs.ts              # 标签页管理
+│   ├── settings.ts          # 用户设置
+│   ├── gitHistory.ts        # 版本历史面板状态
+│   └── ...                  # tiles/pomodoro/writingSession/...
+│
+├── composables/             # 12 个逻辑组合
+│   ├── useShortcuts.ts      # 键盘快捷键
+│   ├── useAutoCommit.ts     # 自动 git 提交
+│   ├── useFileWatcher.ts    # 文件监听
+│   └── ...
+│
+├── lib/                     # 47 个前端工具
+│   ├── cm-*.ts              # CodeMirror 扩展 (12个)
+│   ├── markdown.ts          # Markdown 解析
+│   ├── wikilinks.ts         # Wiki 链接解析
+│   ├── persistence/         # localStorage 序列化
+│   └── ...
+│
+├── i18n/                    # 中英文国际化
+├── styles/                  # CSS (Tailwind v4)
+└── assets/                  # 字体/图片</code></pre>
+
+<div class="tip">⚠️ <strong>关键规则：</strong>所有 store 只做 UI 缓存，数据源在磁盘。Store 调 bridge（如 <code>nodesBridge.scan()</code>），bridge 调 <code>window.eidon.invoke()</code>。Store 里面没有任何业务逻辑。</div>
+
+<h2>3. bridge/ — 契约边界</h2>
+
+<pre><code>bridge/ipc/
+├── index.ts                 # 统一出口
+├── client.ts                # eidonInvoke → window.eidon.invoke
+├── events.ts                # 事件订阅
+├── nodes.ts                 # nodesBridge: scan/create/promote/...
+├── templates.ts             # templatesBridge
+├── todos.ts                 # todosBridge
+├── consistency.ts           # consistencyBridge
+├── git.ts                   # git 网关
+├── snapshots.ts             # snapshots 别名
+├── dialog.ts                # 文件对话框
+├── clipboard.ts             # 剪贴板
+├── notification.ts          # 通知桥
+├── opener.ts                # 外部打开
+├── path.ts                  # 路径工具
+└── tauri.ts                 # Tauri API 适配面</code></pre>
+
+<p>bridge 的每个文件是对一类 IPC 通道的前端包装。典型写法：</p>
+<pre><code>// bridge/ipc/nodes.ts
+import { eidonInvoke } from './client'
+export const nodesBridge = {
+  scan: (root: string) => eidonInvoke('nodes:scan', { root }),
+  create: (input) => eidonInvoke('nodes:create', input),
+}</code></pre>
+
+<h2>4. backend/ — 后端四级联</h2>
+
+<pre><code>backend/
+├── shell/                   # 壳层（唯一+ipc可用 electron）
+│   ├── index.ts             # app.whenReady → 注入路径/CSP/菜单/IPC/建窗
+│   ├── window/main-window.ts
+│   ├── menu/build-menu.ts
+│   ├── lifecycle/close-guard.ts
+│   └── protocol/asset-protocol.ts
+│
+├── ipc/                     # IPC 接入层
+│   ├── register.ts          # 穷尽校验 85 通道
+│   ├── emit.ts              # main→renderer 事件推送
+│   └── handlers/            # 9 个 handler 文件
+│       ├── editor.handlers.ts    (16 通道)
+│       ├── knowledge.handlers.ts (13 通道)
+│       ├── git.handlers.ts       (17 通道)
+│       ├── nodes.handlers.ts     (9 通道)
+│       ├── templates.handlers.ts (7 通道)
+│       ├── todos.handlers.ts     (3 通道)
+│       ├── consistency.handlers.ts (2 通道)
+│       ├── shell.handlers.ts     (5 通道)
+│       └── native.handlers.ts    (10 通道)
+│
+├── services/                # 编排层（组合 domain+capability+emit）
+│   ├── workspace-store.ts        # 注入端口实现（直调 file-ops）
+│   ├── node-service.ts           # 节点编排
+│   ├── template-service.ts       # 模板编排
+│   ├── todo-service.ts           # 待办编排
+│   └── consistency-service.ts    # 一致性编排
+│
+├── domain/                  # 业务规则（注入端口，可单测）
+│   ├── index.ts
+│   ├── nodes.ts             # 节点拓扑内核
+│   ├── templates.ts         # 模板内核
+│   ├── todos.ts             # 待办内核
+│   ├── consistency.ts       # 一致性内核
+│   ├── snapshots.ts         # 快照内核（薄封装 git）
+│   ├── ai.ts                # AI 占位（isAiAvailable 恒 false）
+│   └── __tests__/
+│
+└── capabilities/            # 底层资源（纯 node:* + 库）
+    ├── runtime-paths.ts
+    ├── editor/              # 文件CRUD/编码/转换/pandoc/watcher
+    ├── knowledge/           # 搜索/索引/拼写/CJK校对
+    └── git/                 # iso-git 封装</code></pre>
+
+<h2>5. shared/ — 框架无关叶子</h2>
+
+<pre><code>shared/
+├── models/                  # 纯 TS 类型（wire 形状，统一 camelCase）
+│   ├── node.ts              # ScannedNode, NodeTree, CreateNodeInput...
+│   ├── template.ts          # Template, TemplateInput...
+│   ├── todo.ts              # AggregatedTodo, NodeRef, DueReminder...
+│   ├── consistency.ts       # ConsistencyReport...
+│   ├── git.ts               # WorkspaceStatus, CommitMeta, DiffResult...
+│   ├── file.ts / fs.ts / shell.ts / search.ts / ai.ts / dialog.ts
+│   └── index.ts
+│
+├── contracts/               # zod 磁盘契约（单一事实源）
+│   ├── node.ts              # NodeSchema, FieldDef...
+│   ├── template.ts          # TemplateSchema...
+│   ├── todos.ts             # NodeTodoFile, Reminder...
+│   └── index.ts
+│
+├── ipc/                     # typed IPC 单一事实源
+│   ├── channels.ts          # IpcContract (85 通道) + CHANNEL_PRESENCE
+│   ├── events.ts            # EidonEventMap
+│   ├── api.ts               # EidonApi 接口
+│   └── index.ts
+│
+├── utils/                   # 纯函数
+│   ├── id.ts                # createNodeId (ULID)
+│   ├── date.ts              # 日期工具
+│   ├── path.ts              # normalizePath / parentPathOf / pathDepth
+│   ├── reminders.ts         # collectDue / nextFireTime
+│   ├── errors.ts            # EidonError...
+│   └── index.ts
+│
+└── __tests__/               # 契约 conformance + 单元测试</code></pre>
+
+<h2>6. 快速定位练习</h2>
+
+<p>试着回答（答案见底部）：</p>
+<ol>
+  <li>有人报告「文件保存后编辑器不更新」——你去哪个目录找 bug？</li>
+  <li>要新增一个「导出为 PDF」功能——你会新建/修改哪些文件？</li>
+  <li><code>pnpm contracts:check</code> 红了——问题出在哪两个目录？</li>
+</ol>
+
+<div class="reminder">
+💡 <strong>检验你的理解：</strong>默写出 5 层目录（frontend/bridge/backend/shared/preload），并说出每层最核心的 2-3 个文件。有问题直接问我。
+</div>
+
+<div class="cite">📖 推荐一手资料：<a href="../../../../AGENTS.md">AGENTS.md §2.2 目录结构</a> · 直接浏览 <code>app/</code> 目录树</div>
+
+<div class="nav">
+  <a href="01.html">← 上一课：四层架构</a>
+  <a href="03.html">下一课：数据流与IPC →</a>
+</div>
+
+</body>
+</html>

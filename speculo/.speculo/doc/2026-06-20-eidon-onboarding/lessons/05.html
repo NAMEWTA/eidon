@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 05 · 功能实现：待办提醒与 Git 版本</title>
+<style>
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1.5rem; font-family: system-ui, -apple-system, sans-serif; line-height: 1.8; color: #1a1a1a; }
+  h1 { font-size: 1.8rem; margin-top: 2.5rem; border-bottom: 2px solid #2563eb; padding-bottom: 0.4rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; color: #2563eb; }
+  h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+  pre { background: #2d2d2d; color: #f8f8f2; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; }
+  code { background: #f4f4f5; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
+  pre code { background: none; padding: 0; color: inherit; }
+  blockquote { border-left: 3px solid #2563eb; margin-left: 0; padding-left: 1rem; color: #555; }
+  .win { background: #ecfdf5; border-left: 4px solid #10b981; padding: 0.8rem 1rem; border-radius: 6px; margin: 1.5rem 0; font-weight: 600; }
+  .tip { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.6rem 1rem; border-radius: 6px; margin: 1rem 0; font-size: 0.9rem; }
+  .cite { font-size: 0.85rem; color: #888; margin-top: 2rem; border-top: 1px solid #eee; padding-top: 0.5rem; }
+  .reminder { background: #eff6ff; padding: 0.8rem 1rem; border-radius: 6px; margin-top: 2rem; font-size: 0.9rem; border: 1px solid #bfdbfe; }
+  .nav { display: flex; justify-content: space-between; margin-top: 3rem; font-size: 0.9rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #e5e7eb; padding: 0.4rem 0.7rem; text-align: left; font-size: 0.85rem; }
+  th { background: #f0f0f0; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>✅ Lesson 05 · 功能实现：待办提醒与 Git 版本</h1>
+
+<p><strong>耗时：</strong>~14 分钟 &nbsp;|&nbsp; <strong>先修：</strong>Lesson 04（节点系统）</p>
+
+<div class="win">🏆 本课胜利：你理解待办的磁盘存储模型和提醒调度逻辑，以及 Git 自动提交 -> 历史查询 -> 版本修剪的完整链路。</div>
+
+<h2>Part A：节点级待办与提醒</h2>
+
+<h3>A1. 数据模型：每个节点独立持有</h3>
+
+<p>待办存在每个节点自己的 <code>.node/todos.json</code> 中——随节点迁移、删缓存可重建：</p>
+
+<pre><code>// 某 L3 节点的 .node/todos.json
+{
+  "items": [
+    {
+      "id": "todo_ulid_1",
+      "text": "完成需求文档初稿",
+      "done": false,
+      "createdAt": "2026-06-20T10:00:00Z",
+      "completedAt": null,
+      "reminder": {
+        "enabled": true,
+        "at": "2026-06-21T09:00:00Z",     // 提醒时间
+        "repeat": "daily"                   // none | daily | weekly | monthly
+      }
+    }
+  ]
+}</code></pre>
+
+<p>契约定义：<code>shared/contracts/todos.ts</code>（<code>NodeTodoFileSchema</code>），golden fixture：<code>fixtures/contracts/todos.l3.json</code>。</p>
+
+<h3>A2. 扫描流程</h3>
+
+<pre><code>// 前端触发
+todosBridge.scan({ nodeRefs: [{id:"...", path:"..."}] })
+// → 'todos:scan' IPC → todo-service → domain/todos.ts
+
+// backend/domain/todos.ts 核心逻辑（简化）
+async function scanTodos(store: NodeStore, refs: NodeRef[]): Promise&lt;AggregatedTodo[]&gt; {
+  // 批量并行读取（性能铁律）
+  const results = await Promise.all(
+    refs.map(async (ref) => {
+      const todoPath = join(ref.path, '.node/todos.json')
+      if (!store.exists(todoPath)) return []
+      try {
+        const raw = JSON.parse(store.readFile(todoPath))
+        const parsed = NodeTodoFileSchema.parse(raw)  // zod 校验
+        return parsed.items.map(item => ({ ...item, nodeRef: ref }))
+      } catch {
+        return []  // 坏 JSON → 回退空数组，不中断
+      }
+    })
+  )
+  return results.flat()
+}</code></pre>
+
+<h3>A3. 提醒调度</h3>
+
+<p>前端 <code>frontend/lib/reminder-scheduler.ts</code> 负责调度——纯 setTimeout 模型，不依赖 cron：</p>
+
+<pre><code>// 简化的调度逻辑
+class ReminderScheduler {
+  private timerId: number | null = null
+
+  schedule(todos: AggregatedTodo[]) {
+    const due = todos.filter(t => t.reminder?.enabled && !t.done)
+    const earliest = earliestFireAt(due)  // shared/utils/reminders.ts 纯函数
+
+    if (this.timerId) clearTimeout(this.timerId)
+    if (earliest) {
+      this.timerId = setTimeout(() => {
+        // 触发 Electron Notification（通过 bridge/ipc/notification.ts）
+        notifyBridge.notify({ title: 'EIDON 提醒', body: earliest.text })
+        // 标记已提醒，写回磁盘
+        todosBridge.writeNode({ nodeRef: earliest.nodeRef, items: markNotified(...) })
+        // 递归调度下一个
+        this.schedule(getRemaining(todos))
+      }, earliest.at.getTime() - Date.now())
+    }
+  }
+}</code></pre>
+
+<div class="tip">💡 <strong>设计要点：</strong>提醒计算是纯函数（<code>shared/utils/reminders.ts</code>），可在 Node 下单测。调度是前端副作用（composable/lib），不侵入 domain。</div>
+
+<h2>Part B：Git 版本管理</h2>
+
+<h3>B1. 技术方案：isomorphic-git 替代 Rust git2</h3>
+
+<p>EIDON 用 <strong>isomorphic-git</strong>（纯 JS）实现所有 git 操作，替代了旧 Tauri 方案的 Rust git2 crate。17 条 git IPC 通道全部落在 <code>backend/capabilities/git/</code>：</p>
+
+<pre><code>backend/capabilities/git/
+├── git-client.ts    # isomorphic-git 客户端封装（init/clone/config）
+├── ops.ts            # init/autoCommit/createBranch/checkout/restoreHead
+├── history.ts        # fileHistory/fileAtVersion/rollbackFile/dirty
+├── diff.ts           # fileDiff
+├── prune.ts          # pruneHistory (历史修剪，见 ADR-0023)
+└── cloud-folder.ts   # cloudDetect (检测是否在 iCloud/Dropbox 等)</code></pre>
+
+<h3>B2. 自动提交流程</h3>
+
+<pre><code>// frontend/composables/useAutoCommit.ts
+// 每次编辑器失焦保存后触发
+
+async function autoCommit(filePath: string) {
+  // ① 调 git:autoCommit 通道
+  const result = await gitBridge.autoCommit({
+    filePath,
+    message: `auto: ${basename(filePath)} — ${new Date().toISOString()}`
+  })
+
+  // ② 后端 capabilities/git/ops.ts
+  //    isomorphic-git: git.add() → git.commit() → git.log()
+
+  // ③ 如果用户设置了历史上限，触发修剪
+  if (settings.historyMaxCommits > 0) {
+    const { total } = await gitBridge.repoSize({ root })
+    if (total > settings.historyMaxCommits) {
+      await gitBridge.pruneHistory({
+        root,
+        maxCommits: settings.historyMaxCommits
+      })
+    }
+  }
+}</code></pre>
+
+<h3>B3. 历史查询与 Diff</h3>
+
+<pre><code>// ① 查某文件的所有历史版本
+const commits = await gitBridge.fileHistory({ filePath })
+// → 'git:fileHistory' IPC
+// → backend/capabilities/git/history.ts
+// → isomorphic-git: git.log({ filepath }) → CommitMeta[]
+
+// ② 对比两个版本的差异
+const diff = await gitBridge.fileDiff({
+  filePath,
+  commitA: commits[0].oid,
+  commitB: commits[5].oid
+})
+// → 'git:fileDiff' IPC
+// → backend/capabilities/git/diff.ts
+// → isomorphic-git: 读取两个 tree entry → diff 文本
+
+// ③ 回滚到某个历史版本
+await gitBridge.rollbackFile({ filePath, commitOid })
+// → 'git:rollbackFile' IPC
+// → 读取旧版本内容 → 写入当前文件 → autoCommit</code></pre>
+
+<h3>B4. 历史修剪（ADR-0023）</h3>
+
+<p>为防止 <code>.git/</code> 无限膨胀，提供修剪能力：</p>
+<ul>
+  <li><strong>默认关闭</strong>：<code>historyMaxCommits = 0</code>（不限），老用户不受影响</li>
+  <li><strong>用户显式设上限后</strong>：每次提交后去抖检查，超限则截断旧提交 + <code>git gc</code></li>
+  <li><strong>不可逆但安全</strong>：只删 <code>.git/</code> 缓存（真理源是 plain files），下限 ≥10 防误操作</li>
+</ul>
+
+<h2>Part C：两功能的文件速查</h2>
+
+<table>
+  <tr><th>功能</th><th>关键文件</th></tr>
+  <tr><td>待办契约</td><td><code>shared/contracts/todos.ts</code> + <code>shared/models/todo.ts</code></td></tr>
+  <tr><td>待办业务规则</td><td><code>backend/domain/todos.ts</code></td></tr>
+  <tr><td>待办编排</td><td><code>backend/services/todo-service.ts</code></td></tr>
+  <tr><td>待办 IPC</td><td><code>shared/ipc/channels.ts</code> (3通道) + <code>backend/ipc/handlers/todos.handlers.ts</code> + <code>bridge/ipc/todos.ts</code></td></tr>
+  <tr><td>提醒调度</td><td><code>frontend/lib/reminder-scheduler.ts</code> + <code>shared/utils/reminders.ts</code> (纯函数)</td></tr>
+  <tr><td>通知桥</td><td><code>bridge/ipc/notification.ts</code> → Electron Notification API</td></tr>
+  <tr><td>Git 能力</td><td><code>backend/capabilities/git/{ops,history,diff,prune,git-client}.ts</code></td></tr>
+  <tr><td>Git IPC</td><td><code>shared/ipc/channels.ts</code> (17通道) + <code>backend/ipc/handlers/git.handlers.ts</code> + <code>bridge/ipc/git.ts</code></td></tr>
+  <tr><td>自动提交</td><td><code>frontend/composables/useAutoCommit.ts</code></td></tr>
+  <tr><td>前端面板</td><td><code>frontend/components/TodoListPanel.tsx</code> + <code>HistoryPanel.tsx</code></td></tr>
+</table>
+
+<div class="reminder">
+💡 <strong>检验你的理解：</strong>①设计一个「每日 9 点提醒检查所有待办」的调度逻辑，画出数据流。②如果 .node/todos.json 被手动损坏成非法 JSON，系统会怎样？③解释为什么 git 修剪是不可逆但安全的。有问题直接问我。
+</div>
+
+<div class="cite">📖 推荐一手资料：<a href="../../.speculo/.config/adr/0020-todos-reminders-notification-subsystem.md">ADR-0020（待办提醒）</a> · <a href="../../.speculo/.config/adr/0015-snapshots-reuse-autogit-no-private-repo.md">ADR-0015（版本复用git）</a> · <a href="../../.speculo/.config/adr/0023-git-history-pruning.md">ADR-0023（历史修剪）</a></div>
+
+<div class="nav">
+  <a href="04.html">← 上一课：节点系统</a>
+  <a href="06.html">下一课：开发规范与扩展 →</a>
+</div>
+
+</body>
+</html>

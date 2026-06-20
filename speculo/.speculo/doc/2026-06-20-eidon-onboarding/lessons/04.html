@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 04 · 功能实现：节点系统</title>
+<style>
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1.5rem; font-family: system-ui, -apple-system, sans-serif; line-height: 1.8; color: #1a1a1a; }
+  h1 { font-size: 1.8rem; margin-top: 2.5rem; border-bottom: 2px solid #2563eb; padding-bottom: 0.4rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; color: #2563eb; }
+  h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+  pre { background: #2d2d2d; color: #f8f8f2; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; }
+  code { background: #f4f4f5; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
+  pre code { background: none; padding: 0; color: inherit; }
+  blockquote { border-left: 3px solid #2563eb; margin-left: 0; padding-left: 1rem; color: #555; }
+  .win { background: #ecfdf5; border-left: 4px solid #10b981; padding: 0.8rem 1rem; border-radius: 6px; margin: 1.5rem 0; font-weight: 600; }
+  .tip { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.6rem 1rem; border-radius: 6px; margin: 1rem 0; font-size: 0.9rem; }
+  .danger { background: #fef2f2; border-left: 4px solid #ef4444; padding: 0.6rem 1rem; border-radius: 6px; margin: 1rem 0; font-size: 0.9rem; }
+  .cite { font-size: 0.85rem; color: #888; margin-top: 2rem; border-top: 1px solid #eee; padding-top: 0.5rem; }
+  .reminder { background: #eff6ff; padding: 0.8rem 1rem; border-radius: 6px; margin-top: 2rem; font-size: 0.9rem; border: 1px solid #bfdbfe; }
+  .nav { display: flex; justify-content: space-between; margin-top: 3rem; font-size: 0.9rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #e5e7eb; padding: 0.4rem 0.7rem; text-align: left; font-size: 0.85rem; }
+  th { background: #f0f0f0; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>🏗️ Lesson 04 · 功能实现：节点系统</h1>
+
+<p><strong>耗时：</strong>~15 分钟 &nbsp;|&nbsp; <strong>先修：</strong>Lesson 03（数据流）</p>
+
+<div class="win">🏆 本课胜利：你理解节点三层拓扑的全部规则，能独立实现一个新节点创建流程（从前端按钮到磁盘写入）。</div>
+
+<h2>1. 节点拓扑：深度=层级铁律</h2>
+
+<p>这是 EIDON 最核心的数据模型。理解它，整个产品逻辑就通了：</p>
+
+<pre><code>workspace/                          ← 受管根
+├── .eidon/                         ← 系统区（模板+索引）
+│   └── templates/                  ← 模板 schema
+│
+├── 项目/                           ← L1 节点（第1层，纯组织层）
+│   ├── .node/node.json             ← 身份文件
+│   │   { id:"ulid...", level:1, templateId:"project", fields:{...} }
+│   │
+│   └── 前端/                       ← L2 节点（第2层，纯组织层）
+│       ├── .node/node.json
+│       │   { id:"ulid...", level:2, ... }
+│       │
+│       └── 需求文档/               ← L3 节点（第3层，唯一内容层）
+│           ├── .node/node.json     ← 身份文件
+│           ├── spec.md             ← 内容文件（.md/.png/...）
+│           ├── 草图.png
+│           └── 截图/               ← 第4层起：自由文件夹（无身份）
+│               └── v1.png
+│
+└── 个人/                           ← 另一个 L1 节点
+    └── .node/node.json</code></pre>
+
+<table>
+  <tr><th>规则</th><th>详情</th></tr>
+  <tr><td>深度=层级铁律</td><td>第1层节点=L1，第2层=L2，第3层=L3。物理位置唯一确定层级</td></tr>
+  <tr><td>L1/L2纯组织层</td><td>只含 .node/ + README.md + AGENTS.md + 下级节点目录。禁止放内容文件（.md/.png等）</td></tr>
+  <tr><td>L3唯一内容层</td><td>可放任何类型的内容文件 + 自由子目录</td></tr>
+  <tr><td>第4层起自由</td><td>普通文件夹，无 .node/，无身份。系统不管</td></tr>
+  <tr><td>创建期硬强制</td><td>只能根→L1(选模板)、L1下→L2、L2下→L3。UI不提供越级创建入口</td></tr>
+  <tr><td>ULID身份</td><td>每节点唯一ULID，存在.node/node.json，随目录移动（rename/mv不丢身份）</td></tr>
+</table>
+
+<h2>2. node.json 结构（磁盘契约）</h2>
+
+<pre><code>// 示例：L3 节点 "需求文档" 的 .node/node.json
+{
+  "id": "01JQXYZ...",          // ULID，全局唯一
+  "templateId": "project",     // 关联的模板
+  "level": 3,                  // 层级（物理深度唯一确定）
+  "type": "document",          // 节点类型
+  "schemaVersion": 1,          // 模板版本号（懒迁移）
+  "createdAt": "2026-06-20T...",
+  "fields": {                  // 扩展字段（模板定义）
+    "status": "进行中",        // select 类型
+    "priority": 3,             // number 类型
+    "deadline": "2026-07-01"   // date 类型
+  },
+  "references": [],            // 预留：跨节点引用（本期空）
+  "flags": {}                  // 预留：软态标记（本期空）
+}</code></pre>
+
+<p>契约定义在 <code>shared/contracts/node.ts</code>（zod schema），对应类型在 <code>shared/models/node.ts</code>。</p>
+
+<h2>3. 扫描建树全流程（代码走读）</h2>
+
+<p>以 <code>nodes:scan</code> 为例，看看实际代码怎么走：</p>
+
+<pre><code>// ① shared/ipc/channels.ts — 通道声明
+'nodes:scan': { req: { root: string }; res: NodeTree }
+
+// ② bridge/ipc/nodes.ts — 前端调用
+scan: (root: string) => eidonInvoke('nodes:scan', { root })
+
+// ③ frontend/stores/nodes.ts — Store 调用
+const tree = await nodesBridge.scan(root)
+// → 写入 Zustand store，触发 FileTree 渲染
+
+// ④ backend/ipc/handlers/nodes.handlers.ts — Handler 接线
+ipcMain.handle('nodes:scan', async (_e, req) => {
+  return nodeService.scan(req.root)
+})
+
+// ⑤ backend/services/node-service.ts — 编排
+async scan(root: string): Promise&lt;NodeTree&gt; {
+  const store = this.createStore(root)  // 构造注入端口
+  return this.domain.scan(store, root)
+}
+
+// ⑥ backend/domain/nodes.ts — 业务规则（核心逻辑）
+function scan(store: NodeStore, root: string): NodeTree {
+  const entries = store.readdir(root)      // → capabilities/editor/file-ops
+  const nodes: ScannedNode[] = []
+
+  for (const entry of entries) {
+    if (!entry.isDir) continue
+    const nodeJsonPath = join(entry.path, '.node/node.json')
+    if (!store.exists(nodeJsonPath)) continue  // 普通文件夹跳过
+
+    const raw = JSON.parse(store.readFile(nodeJsonPath))
+    const parsed = NodeSchema.parse(raw)  // zod 校验
+    const depth = pathDepth(entry.path, root)
+
+    nodes.push({
+      ...parsed,
+      path: entry.path,
+      children: depth < 3 ? scan(store, entry.path) : []  // 递归
+    })
+  }
+  return { root, nodes }
+}</code></pre>
+
+<div class="tip">💡 <strong>性能关键：</strong><code>scan()</code> 是递归的、可能扫万级文件。domain 逻辑纯函数化确保可单测；文件 IO 走注入端口，测试时可用 mock store。</div>
+
+<h2>4. 创建节点的三道防线</h2>
+
+<div class="danger"><strong>防线 1 — 前端硬拦截：</strong>UI 只在合法位置显示「新建节点」按钮。L1→在根下，L2→在 L1 下，L3→在 L2 下。不存在越级创建的入口。</div>
+
+<pre><code>// frontend/components/NodeCreateDialog.tsx 伪代码
+function canCreateHere(parentPath: string): boolean {
+  const depth = pathDepth(parentPath, root)
+  if (depth === 0) return true   // 根下可建 L1
+  if (depth === 1) return true   // L1 下可建 L2
+  if (depth === 2) return true   // L2 下可建 L3
+  return false                    // L3 下只能建自由文件夹
+}</code></pre>
+
+<div class="danger"><strong>防线 2 — domain 层校验：</strong>即使前端放过，<code>backend/domain/nodes.ts</code> 的 <code>createNode()</code> 也会再次检查层级合法性、模板是否存在。</div>
+
+<div class="danger"><strong>防线 3 — consistency 扫描：</strong><code>backend/domain/consistency.ts</code> 定时/手动扫描，在 FileTree 上标记四类违规：①缺.node/待提升 ②L1/L2有内容文件 ③深度≠level ④.node/损坏。</div>
+
+<h2>5. 模板系统（节点配套）</h2>
+
+<p>模板定义了每层节点可以有哪些字段。关键规则：</p>
+<ul>
+  <li>模板 = L1+L2+L3 三层字段集捆绑在一起</li>
+  <li>版本化不可变：编辑模板生成新版本，旧节点保持旧 schemaVersion</li>
+  <li>6 种字段类型：text / textarea / number / date / select / boolean</li>
+  <li>字段二分：<strong>元字段</strong>（id/templateId/level/...系统自动生成，用户不可增减） vs <strong>扩展字段</strong>（模板定义，可扩展）</li>
+  <li>模板管理 UI 在 Settings 面板中</li>
+  <li>内置种子（档案/项目/资料）仅首次初始化写入，之后与用户模板平级</li>
+</ul>
+
+<p>模板相关通道：<code>templates:list/create/edit/delete/get/listVersions</code>（7 条）。</p>
+
+<div class="reminder">
+💡 <strong>检验你的理解：</strong>①画出三层节点拓扑图（含 .node/ 和 .eidon/）。②说明如果用户想在 L2 节点下直接创建 .md 文件会发生什么。③尝试描述一个新的「在 L2 下创建 L3 节点」的完整数据流。有问题直接问我。
+</div>
+
+<div class="cite">📖 推荐一手资料：<a href="../../.speculo/.config/adr/0013-fixed-three-level-node-topology-multi-template.md">ADR-0013（节点拓扑）</a> · <a href="../../.speculo/.config/adr/0016-structure-enforcement-mark-not-autofix.md">ADR-0016（结构强制）</a> · <a href="../../../../app/backend/domain/nodes.ts">backend/domain/nodes.ts</a></div>
+
+<div class="nav">
+  <a href="03.html">← 上一课：数据流与IPC</a>
+  <a href="05.html">下一课：待办与Git →</a>
+</div>
+
+</body>
+</html>

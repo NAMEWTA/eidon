@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 06 · 开发规范与扩展指南</title>
+<style>
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1.5rem; font-family: system-ui, -apple-system, sans-serif; line-height: 1.8; color: #1a1a1a; }
+  h1 { font-size: 1.8rem; margin-top: 2.5rem; border-bottom: 2px solid #2563eb; padding-bottom: 0.4rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; color: #2563eb; }
+  h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+  pre { background: #2d2d2d; color: #f8f8f2; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; }
+  code { background: #f4f4f5; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
+  pre code { background: none; padding: 0; color: inherit; }
+  blockquote { border-left: 3px solid #2563eb; margin-left: 0; padding-left: 1rem; color: #555; }
+  .win { background: #ecfdf5; border-left: 4px solid #10b981; padding: 0.8rem 1rem; border-radius: 6px; margin: 1.5rem 0; font-weight: 600; }
+  .tip { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.6rem 1rem; border-radius: 6px; margin: 1rem 0; font-size: 0.9rem; }
+  .danger { background: #fef2f2; border-left: 4px solid #ef4444; padding: 0.6rem 1rem; border-radius: 6px; margin: 1rem 0; font-size: 0.9rem; }
+  .checklist { background: #f0fdf4; border: 1px solid #86efac; padding: 0.8rem 1.2rem; border-radius: 6px; margin: 1rem 0; }
+  .checklist li { margin: 0.3rem 0; }
+  .cite { font-size: 0.85rem; color: #888; margin-top: 2rem; border-top: 1px solid #eee; padding-top: 0.5rem; }
+  .reminder { background: #eff6ff; padding: 0.8rem 1rem; border-radius: 6px; margin-top: 2rem; font-size: 0.9rem; border: 1px solid #bfdbfe; }
+  .nav { display: flex; justify-content: space-between; margin-top: 3rem; font-size: 0.9rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #e5e7eb; padding: 0.4rem 0.7rem; text-align: left; font-size: 0.85rem; }
+  th { background: #f0f0f0; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>🛠️ Lesson 06 · 开发规范与扩展指南</h1>
+
+<p><strong>耗时：</strong>~15 分钟 &nbsp;|&nbsp; <strong>先修：</strong>前 5 课全部</p>
+
+<div class="win">🏆 本课胜利：你掌握全部的提交前检查清单、ESLint 机器强制边界、契约改动流程，并能在 30 分钟内完成一个带 IPC 通道的新功能。</div>
+
+<h2>1. 提交前铁律</h2>
+
+<div class="checklist">
+<strong>每次提交前必须全部通过：</strong>
+<ol>
+  <li><code>pnpm lint</code> — ESLint 四层边界 + no-restricted-imports（机器强制）</li>
+  <li><code>pnpm typecheck</code> — renderer + node 双 tsconfig 类型检查</li>
+  <li><code>pnpm test:core</code> — shared + backend domain 单元测试</li>
+  <li><strong>如果改过磁盘契约：</strong>加跑 <code>pnpm contracts:check</code></li>
+  <li><strong>如果改过前端组件：</strong>加跑 <code>pnpm test:ui</code></li>
+</ol>
+</div>
+
+<p>建议在提交前一次性跑完：</p>
+<pre><code>pnpm lint && pnpm typecheck && pnpm test:core && pnpm contracts:check</code></pre>
+
+<h2>2. ESLint 机器强制边界（必读）</h2>
+
+<p>规则在 <code>app/eslint.config.mjs</code>，用 <code>eslint-plugin-boundaries</code> + <code>no-restricted-imports</code> 实现。以下是各层的禁止清单：</p>
+
+<table>
+  <tr><th>你在哪个目录写代码</th><th>禁止你 import 的东西</th><th>允许 import</th></tr>
+  <tr><td><code>frontend/</code></td><td>backend/* (全部), preload/, electron</td><td>bridge/, shared/, window.eidon</td></tr>
+  <tr><td><code>bridge/</code></td><td>backend/* (全部), preload/, electron, react, zustand</td><td>shared/, window.eidon</td></tr>
+  <tr><td><code>backend/shell/</code> 和 <code>ipc/</code></td><td>frontend/, bridge/, preload/</td><td>backend/services, shared/, electron</td></tr>
+  <tr><td><code>backend/services/</code></td><td>frontend/, bridge/, preload/, shell/, ipc/, electron</td><td>backend/domain/, backend/capabilities/, shared/</td></tr>
+  <tr><td><code>backend/domain/</code></td><td>everything except shared + 注入端口</td><td>shared/ + 注入端口</td></tr>
+  <tr><td><code>backend/capabilities/</code></td><td>frontend/, bridge/, preload/, shell/, ipc/, service/, electron</td><td>shared/, node:*, 库, emit</td></tr>
+  <tr><td><code>shared/</code></td><td>所有其他目录, react, zustand, electron</td><td>npm 纯库（zod, ulid...）</td></tr>
+  <tr><td><strong>全局</strong></td><td><code>@tauri-apps/*</code>（永久禁止）</td><td>—</td></tr>
+</table>
+
+<div class="danger"><strong>最重要：</strong>如果你写了 <code>import { something } from '../../backend/...'</code> 在 frontend 文件中 —— <code>pnpm lint</code> 直接报错，CI 拦截。这个规则不是建议，是硬约束。</div>
+
+<h2>3. 磁盘契约改动流程</h2>
+
+<p>改 <code>.node/node.json</code> 或 template 或 <code>.eidon/</code> 目录布局形状时，必须严格按此流程：</p>
+
+<pre><code>Step 1: 改 shared/contracts/node.ts （或 template.ts / todos.ts）
+         → 更新 zod schema
+
+Step 2: 更新 fixtures/contracts/ 下对应的 golden fixture
+         → fixtures/contracts/node.l3.json
+
+Step 3: 跑 pnpm contracts:check
+         → 必须绿！红了 = 破坏扫描重建一致性
+
+Step 4: 改解析器（domain/*.ts 中读 JSON 的逻辑）
+         → 适配新 schema 形状
+
+Step 5: 跑 pnpm test:core
+         → 确认所有 conformance 测试仍然绿</code></pre>
+
+<blockquote>💡 为什么 fixtures 先于解析器？因为「删缓存→从 .node/ + .eidon/templates/ 100% 重建节点树」是产品层的可重建铁律（AX-1/AX-4）。fixtures 是一道防线——保证任何改了契约形状但没有对应更新的解析逻辑都能被抓出来。</blockquote>
+
+<h2>4. 新增功能的完整模板（照着做）</h2>
+
+<p>假设要新增一个 <strong>「标签系统」</strong>（tags:list / tags:getNodeTags / tags:searchByTag）。按以下步骤走：</p>
+
+<h3>4.1 声明类型和契约</h3>
+<pre><code>// ① shared/models/tag.ts（新建）
+export interface Tag { name: string; count: number }
+export interface TagSearchResult { nodeId: string; path: string; tags: string[] }
+
+// ② shared/ipc/channels.ts（追加）
+export interface IpcContract {
+  // ... 现有 85 通道 ...
+  'tags:list':          { req: { root: string };      res: Tag[] }
+  'tags:getNodeTags':   { req: { nodePath: string };   res: string[] }
+  'tags:searchByTag':   { req: { root: string; tag: string }; res: TagSearchResult[] }
+}
+// 补全 CHANNEL_PRESENCE
+export const CHANNEL_PRESENCE: Record&lt;keyof IpcContract, true&gt; = {
+  // ... 现有 ...
+  'tags:list': true, 'tags:getNodeTags': true, 'tags:searchByTag': true,
+}</code></pre>
+
+<h3>4.2 实现能力层和业务规则</h3>
+<pre><code>// ③ backend/capabilities/knowledge/tags.ts（新建）
+// 纯 node 实现：遍历 workspace 扫描 frontmatter tags
+export async function scanTags(store: NodeStore, root: string): Promise&lt;Tag[]&gt; { ... }
+export async function getNodeTags(store: NodeStore, nodePath: string): Promise&lt;string[]&gt; { ... }
+
+// ④ backend/domain/tags.ts（新建，如果涉及业务规则）
+// 如果只是简单查询，可跳过 domain 层，直接在 capability 实现
+// 如果涉及一致性（如自动补全 tag 命名规范），放 domain</code></pre>
+
+<h3>4.3 编排</h3>
+<pre><code>// ⑤ backend/services/tag-service.ts（新建）
+export function createTagService(store: NodeStore) {
+  return {
+    list: (root: string) => scanTags(store, root),
+    getNodeTags: (nodePath: string) => getNodeTags(store, nodePath),
+    searchByTag: (root: string, tag: string) => searchByTag(store, root, tag),
+  }
+}</code></pre>
+
+<h3>4.4 接线</h3>
+<pre><code>// ⑥ backend/ipc/handlers/tags.handlers.ts（新建）
+import { registerIpcHandlers } from '../register'
+import { createTagService } from '../../services/tag-service'
+
+export function registerTagHandlers(getStore: () => NodeStore) {
+  const service = createTagService(getStore())
+
+  ipcMain.handle('tags:list', async (_e, req) => service.list(req.root))
+  ipcMain.handle('tags:getNodeTags', async (_e, req) => service.getNodeTags(req.nodePath))
+  ipcMain.handle('tags:searchByTag', async (_e, req) => service.searchByTag(req.root, req.tag))
+}
+
+// ⑦ backend/shell/index.ts（注册）
+import { registerTagHandlers } from '../ipc/handlers/tags.handlers'
+// 在 registerAllHandlers 中调用 registerTagHandlers(store)</code></pre>
+
+<h3>4.5 前端包装</h3>
+<pre><code>// ⑧ bridge/ipc/tags.ts（新建）
+import { eidonInvoke } from './client'
+
+export const tagsBridge = {
+  list: (root: string) => eidonInvoke('tags:list', { root }),
+  getNodeTags: (nodePath: string) => eidonInvoke('tags:getNodeTags', { nodePath }),
+  searchByTag: (root: string, tag: string) => eidonInvoke('tags:searchByTag', { root, tag }),
+}</code></pre>
+
+<h2>5. 实用命令速查</h2>
+
+<table>
+  <tr><th>目的</th><th>命令</th></tr>
+  <tr><td>桌面开发</td><td><code>pnpm dev</code></td></tr>
+  <tr><td>类型检查</td><td><code>pnpm typecheck</code></td></tr>
+  <tr><td>构建</td><td><code>pnpm build</code></td></tr>
+  <tr><td>Lint（四层边界）</td><td><code>pnpm lint</code></td></tr>
+  <tr><td>核心测试</td><td><code>pnpm test:core</code></td></tr>
+  <tr><td>前端测试</td><td><code>pnpm test:ui</code></td></tr>
+  <tr><td>契约测试</td><td><code>pnpm contracts:check</code></td></tr>
+  <tr><td>跑单个测试文件</td><td><code>pnpm --dir app exec vitest run shared/__tests__/&lt;path&gt;.test.ts</code></td></tr>
+  <tr><td>按用例名过滤</td><td><code>pnpm --dir app exec vitest run shared -t "&lt;name&gt;"</code></td></tr>
+  <tr><td>打包 macOS</td><td><code>pnpm dist:mac</code></td></tr>
+  <tr><td>打包 Windows</td><td><code>pnpm dist:win</code></td></tr>
+  <tr><td>打包 Linux</td><td><code>pnpm dist:linux</code></td></tr>
+</table>
+
+<h2>6. 测试规范</h2>
+<ul>
+  <li><strong>domain 层：</strong>纯函数单测，mock 注入端口。写在 <code>backend/domain/__tests__/</code></li>
+  <li><strong>capabilities 层：</strong>纯函数单测，mock node:*。写在各自 <code>__tests__/</code> 子目录</li>
+  <li><strong>shared 层：</strong>单元测试 + 契约 conformance。写在 <code>shared/__tests__/</code></li>
+  <li><strong>前端 store/composable：</strong>mock bridge 返回值。写在 <code>frontend/__tests__/</code>（如有）</li>
+  <li><strong>E2E：</strong>在 <code>backend/domain/__tests__/eidon/e2e.test.ts</code></li>
+</ul>
+
+<div class="reminder">
+💡 <strong>最终检验（学完全部 6 课）：</strong>选一个真实的小功能（如「新增 shell:getAppVersion 通道」或「新增一个文件导出格式」），从 channels.ts → backend → bridge → frontend 完整走通。遇到任何卡住的地方，回来翻对应课程，或者直接问我。
+</div>
+
+<div class="cite">
+📖 推荐一手资料：<a href="../../../../AGENTS.md">AGENTS.md（权威规范全文）</a> · <a href="../../../../app/eslint.config.mjs">eslint.config.mjs（边界规则源码）</a> · <a href="../../../../speculo/.speculo/.config/adr/README.md">ADR 登记表（所有架构决策）</a> · <a href="../../../../speculo/.speculo/.config/RULES.md">RULES.md（核心规则速查）</a>
+</div>
+
+<div class="nav">
+  <a href="05.html">← 上一课：待办与Git</a>
+  <span>🏁 课程完成</span>
+</div>
+
+</body>
+</html>

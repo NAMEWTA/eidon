@@ -1,0 +1,62 @@
+# electron-builder 打包配置。三平台桌面分发：mac(dmg) / win(nsis+msi) / linux(deb+rpm)。仅桌面端。
+appId: app.eidon
+productName: EIDON
+copyright: Copyright © xiangdong li
+
+# electron-vite 产物在 out/{main,preload,renderer}；随包一并打入。
+directories:
+  buildResources: build
+  output: dist-app
+files:
+  - out/**/*
+  - package.json
+
+# 内置字典等随包资源：生产经 process.resourcesPath 解析（main/index.ts injectRuntimePaths）。
+extraResources:
+  - from: resources/dicts
+    to: dicts
+    filter:
+      - "**/*"
+
+mac:
+  category: public.app-category.productivity
+  minimumSystemVersion: "10.15"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  icon: resources/icons/icon.icns
+  notarize: true
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+
+win:
+  icon: resources/icons/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: msi
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  category: Office
+  icon: resources/icons
+  target:
+    - deb
+    - rpm
+
+# 启用 electron-updater 自动更新。
+publish:
+  provider: github
+  owner: NAMEWTA
+  repo: eidon

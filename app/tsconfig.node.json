@@ -6,5 +6,5 @@
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "eslint.config.mjs"]
+  "include": ["electron.vite.config.ts", "vitest.config.ts", "eslint.config.mjs"]
 }

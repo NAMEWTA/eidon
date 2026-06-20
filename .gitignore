@@ -12,21 +12,10 @@ dist
 dist-ssr
 *.local
 
-# Rust / Cargo
-target/
-**/*.rs.bk
-Cargo.lock
-!app/src-tauri/Cargo.lock
-!mcp-server/Cargo.lock
-
-# Tauri build output
-app/src-tauri/binaries/eidon-mcp-*
-
 # macOS
 *.dmg
 *.app
 *.icns
-!app/src-tauri/icons/*.icns
 
 # Build artifacts
 app/dist/

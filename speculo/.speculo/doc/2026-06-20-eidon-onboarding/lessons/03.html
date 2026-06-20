@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 03 · 数据流与 IPC 通信</title>
+<style>
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1.5rem; font-family: system-ui, -apple-system, sans-serif; line-height: 1.8; color: #1a1a1a; }
+  h1 { font-size: 1.8rem; margin-top: 2.5rem; border-bottom: 2px solid #2563eb; padding-bottom: 0.4rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; color: #2563eb; }
+  h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+  pre { background: #2d2d2d; color: #f8f8f2; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; }
+  code { background: #f4f4f5; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
+  pre code { background: none; padding: 0; color: inherit; }
+  blockquote { border-left: 3px solid #2563eb; margin-left: 0; padding-left: 1rem; color: #555; }
+  .win { background: #ecfdf5; border-left: 4px solid #10b981; padding: 0.8rem 1rem; border-radius: 6px; margin: 1.5rem 0; font-weight: 600; }
+  .flow-step { background: #f0f9ff; border: 1px solid #bae6fd; padding: 0.6rem 1rem; border-radius: 6px; margin: 0.6rem 0; font-family: monospace; font-size: 0.88rem; }
+  .flow-arrow { text-align: center; font-size: 1.2rem; color: #2563eb; margin: 0.2rem 0; }
+  .cite { font-size: 0.85rem; color: #888; margin-top: 2rem; border-top: 1px solid #eee; padding-top: 0.5rem; }
+  .reminder { background: #eff6ff; padding: 0.8rem 1rem; border-radius: 6px; margin-top: 2rem; font-size: 0.9rem; border: 1px solid #bfdbfe; }
+  .nav { display: flex; justify-content: space-between; margin-top: 3rem; font-size: 0.9rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #e5e7eb; padding: 0.4rem 0.7rem; text-align: left; font-size: 0.85rem; }
+  th { background: #f0f0f0; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>⚡ Lesson 03 · 数据流与 IPC 通信</h1>
+
+<p><strong>耗时：</strong>~13 分钟 &nbsp;|&nbsp; <strong>先修：</strong>Lesson 01（四层架构）+ Lesson 02（目录结构）</p>
+
+<div class="win">🏆 本课胜利：你能完整追踪一个 IPC 请求的 9 步全链路（从 React 组件点击 → Electron 主进程 → Node.js → 返回结果）。</div>
+
+<h2>1. IPC 通道全景</h2>
+
+<p>项目有 <strong>85 条 typed IPC 通道</strong>，分 9 个域，全部在 <code>shared/ipc/channels.ts</code> 的 <code>IpcContract</code> 接口中申明：</p>
+
+<table>
+  <tr><th>域</th><th>通道数</th><th>前缀</th><th>示例</th></tr>
+  <tr><td>editor</td><td>16</td><td><code>editor:</code></td><td>editor:readFile, editor:writeFile, editor:watch</td></tr>
+  <tr><td>git</td><td>17</td><td><code>git:</code></td><td>git:autoCommit, git:fileHistory, git:fileDiff</td></tr>
+  <tr><td>knowledge</td><td>13</td><td><code>kn:</code></td><td>kn:search, kn:spellcheck, kn:cjkProofread</td></tr>
+  <tr><td>native</td><td>10</td><td><code>dialog:/clipboard:/notify:/win:</code></td><td>dialog:openFile, clipboard:writeText</td></tr>
+  <tr><td>nodes</td><td>9</td><td><code>nodes:</code></td><td>nodes:scan, nodes:create, nodes:promote</td></tr>
+  <tr><td>templates</td><td>7</td><td><code>templates:</code></td><td>templates:list, templates:create</td></tr>
+  <tr><td>shell</td><td>5</td><td><code>shell:</code></td><td>shell:getBuildInfo, shell:forceClose</td></tr>
+  <tr><td>todos</td><td>3</td><td><code>todos:</code></td><td>todos:scan, todos:writeNode</td></tr>
+  <tr><td>consistency</td><td>2</td><td><code>consistency:</code></td><td>consistency:check, consistency:normalize</td></tr>
+</table>
+
+<blockquote>💡 通道命名规则：<code>&lt;域&gt;:&lt;camelCase动作&gt;</code>。req/res 类型在 <code>IpcContract</code> 中结对声明，编译期 + 启动期双重校验全覆盖。</blockquote>
+
+<h2>2. 请求/响应全链路（以「扫描节点树」为例）</h2>
+
+<p>用户打开一个 workspace，前端需要扫描所有节点的树结构。全程 9 步：</p>
+
+<div class="flow-step">📍 <strong>Step 1</strong> — frontend/stores/nodes.ts<br>store 调 bridge：<code>nodesBridge.scan(root)</code></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">📍 <strong>Step 2</strong> — bridge/ipc/nodes.ts<br>bridge 调 window.eidon：<code>eidonInvoke('nodes:scan', { root })</code></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">📍 <strong>Step 3</strong> — bridge/ipc/client.ts<br><code>eidonInvoke</code> → <code>window.eidon.invoke('nodes:scan', { root })</code></div>
+<div class="flow-arrow">↓  (Electron IPC 跨进程)</div>
+<div class="flow-step">📍 <strong>Step 4</strong> — preload/index.ts<br>contextBridge 转发 → <code>ipcMain.handle('nodes:scan', ...)</code></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">📍 <strong>Step 5</strong> — backend/ipc/handlers/nodes.handlers.ts<br>handler 解析参数，调 service：<code>nodeService.scan(root)</code></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">📍 <strong>Step 6</strong> — backend/services/node-service.ts<br>编排层：构造 workspace-store（注入端口）→ 调 domain.scan() → 经 shared/contracts 校验</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">📍 <strong>Step 7</strong> — backend/domain/nodes.ts<br>业务规则：遍历目录 → 识别 .node/ → 深度=层级 → id→path 映射 → 构建 NodeTree</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">📍 <strong>Step 8</strong> — backend/capabilities/editor/file-ops.ts<br>底层能力：<code>fs.readdir</code> / <code>fs.readFile</code> 读 .node/node.json</div>
+<div class="flow-arrow">↓  (结果沿原路返回)</div>
+<div class="flow-step">📍 <strong>Step 9</strong> — frontend/stores/nodes.ts<br>store 收到 <code>NodeTree</code>，更新 Zustand 状态 → React 重新渲染 FileTree</div>
+
+<h2>3. 事件推送（反向：main → renderer）</h2>
+
+<p>除了请求/响应，主进程也可以<strong>主动推送</strong>事件给渲染进程。4 个 <code>eidon:*</code> 事件在 <code>shared/ipc/events.ts</code> 定义：</p>
+
+<table>
+  <tr><th>事件</th><th>触发时机</th><th>载荷</th></tr>
+  <tr><td><code>eidon:menu</code></td><td>用户点击原生菜单项</td><td><code>{ action: string }</code></td></tr>
+  <tr><td><code>eidon:close-requested</code></td><td>用户尝试关闭窗口</td><td><code>{}</code>（触发 close-guard）</td></tr>
+  <tr><td><code>eidon:file-changed</code></td><td>外部程序修改了文件</td><td><code>{ path: string }</code></td></tr>
+  <tr><td><code>eidon:index-updated</code></td><td>工作区索引重建完成</td><td><code>{ root: string }</code></td></tr>
+</table>
+
+<p>推送路径：</p>
+<pre><code>backend/capabilities/editor/watcher.ts    ← chokidar 检测到文件变化
+  → backend/ipc/emit.ts                   ← webContents.send('eidon:file-changed', { path })
+    → preload/index.ts                    ← contextBridge 转发
+      → bridge/ipc/events.ts              ← listen('eidon:file-changed', callback)
+        → frontend/composables/useFileWatcher.ts</code></pre>
+
+<h2>4. channels.ts — IPC 单一事实源</h2>
+
+<p>看一个真实的通道定义（简化）：</p>
+<pre><code>// shared/ipc/channels.ts
+export interface IpcContract {
+  'nodes:scan':          { req: { root: string };             res: NodeTree }
+  'nodes:create':        { req: CreateNodeInput;               res: NodeMutationResult }
+  'nodes:promote':       { req: { path: string; templateId: string }; res: NodeMutationResult }
+  'editor:readFile':     { req: { path: string };              res: FileReadResult }
+  'editor:writeFile':    { req: { path: string; content: string }; res: void }
+  'todos:scan':          { req: { nodeRefs: NodeRef[] };       res: AggregatedTodo[] }
+  'git:fileHistory':     { req: { filePath: string };          res: CommitMeta[] }
+  // ... 78 more
+}
+
+// 穷尽校验用的存在性清单
+export const CHANNEL_PRESENCE: Record&lt;keyof IpcContract, true&gt; = { ... }</code></pre>
+
+<h2>5. 新增一个 IPC 通道的 5 步法（核心技能）</h2>
+
+<p>假设要新增 <code>shell:getAppVersion</code>：</p>
+
+<table>
+  <tr><th>步骤</th><th>文件</th><th>操作</th></tr>
+  <tr><td>① 声明通道</td><td><code>shared/ipc/channels.ts</code></td><td>在 IpcContract 加 <code>'shell:getAppVersion': { req: void; res: string }</code>；补全 CHANNEL_PRESENCE</td></tr>
+  <tr><td>② 实现能力</td><td><code>backend/capabilities/</code>或<code>domain/</code></td><td>写纯逻辑（如读 <code>app.getVersion()</code>）</td></tr>
+  <tr><td>③ 编排</td><td><code>backend/services/</code></td><td>service 方法调用 capability/domain</td></tr>
+  <tr><td>④ 接线</td><td><code>backend/ipc/handlers/shell.handlers.ts</code></td><td>ipcMain.handle('shell:getAppVersion', ...) → service</td></tr>
+  <tr><td>⑤ 前端包装</td><td><code>bridge/ipc/shell.ts</code> 或新建</td><td><code>getVersion: () => eidonInvoke('shell:getAppVersion')</code></td></tr>
+</table>
+
+<div class="reminder">
+💡 <strong>检验你的理解：</strong>不看上面，画出「扫描节点树」的完整数据流（9 步）。然后试着设计「获取 git diff」这个功能需要经过哪些文件和步骤。有问题直接问我。
+</div>
+
+<div class="cite">📖 推荐一手资料：<a href="../../../../app/shared/ipc/channels.ts">shared/ipc/channels.ts</a> · <a href="../../../../AGENTS.md">AGENTS.md §4.3 typed IPC 五步新增流程</a></div>
+
+<div class="nav">
+  <a href="02.html">← 上一课：目录结构</a>
+  <a href="04.html">下一课：节点系统实现 →</a>
+</div>
+
+</body>
+</html>

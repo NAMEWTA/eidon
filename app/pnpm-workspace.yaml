@@ -1,6 +1,9 @@
 allowBuilds:
   '@swc/core': true
   core-js: true
+  electron: true
+  # Windows 安装器构建工具：仅 Windows CI 出包时需要；本地/其它平台不跑其构建脚本。
+  electron-winstaller: false
   esbuild: true
 minimumReleaseAgeExclude:
   - react-arborist@3.10.1

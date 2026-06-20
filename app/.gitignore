@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# electron-vite 构建产物（main/preload/renderer）
+out/
+# electron-builder 安装包产物（M6 起）
+dist-app/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

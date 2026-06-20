@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 #
-# Cut a new release: bumps version in tauri.conf.json + app/package.json
-# + Cargo.toml, commits, tags, and pushes to GitHub.
-#
-# Tag push triggers .github/workflows/release.yml to build macOS ARM64 +
-# Windows x64 installers on CI.
+# Cut a new release: bumps version in app/package.json, commits, tags, pushes.
+# Tag push triggers .github/workflows/release.yml to build mac/win/linux
+# installers via electron-builder on CI.
 #
 # Usage: ./scripts/release.sh 0.2.0
 
@@ -31,19 +29,11 @@ fi
 
 echo "==> Bumping version to $VERSION"
 
-# tauri.conf.json
-sed -i.bak -E "s/\"version\": \"[^\"]+\"/\"version\": \"$VERSION\"/" app/src-tauri/tauri.conf.json
-rm app/src-tauri/tauri.conf.json.bak
-
-# package.json
+# app/package.json （Electron 全栈唯一版本源）
 sed -i.bak -E "s/\"version\": \"[^\"]+\"/\"version\": \"$VERSION\"/" app/package.json
 rm app/package.json.bak
 
-# Cargo.toml (in src-tauri)
-sed -i.bak -E "s/^version = \"[^\"]+\"/version = \"$VERSION\"/" app/src-tauri/Cargo.toml
-rm app/src-tauri/Cargo.toml.bak
-
-git add app/src-tauri/tauri.conf.json app/package.json app/src-tauri/Cargo.toml
+git add app/package.json
 git commit -m "chore: bump version to $VERSION"
 git tag "v$VERSION"
 
@@ -57,5 +47,5 @@ echo ""
 echo "==> Done! Watch the CI build at:"
 echo "    https://github.com/NAMEWTA/eidon/actions"
 echo ""
-echo "CI builds macOS ARM64 (.dmg) + Windows x64 (.exe) in parallel."
+echo "CI builds macOS (.dmg) + Windows (.exe/.msi) + Linux (.deb/.rpm) via electron-builder."
 echo "Download artifacts from the Actions run summary page."

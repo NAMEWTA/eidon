@@ -2,12 +2,12 @@
 
 **状态：** 已锁定（扩展 ADR-0005 至 EIDON 数据层；对应 decision-log R-3 升格）
 
-EIDON 数据层的全部磁盘契约**统一纳入既有防漂移体系**（ADR-0005 的 `core/contracts/` zod 单一事实源 + `fixtures/contracts/` 跨语言 golden fixtures），不另起炉灶：
+EIDON 数据层的全部磁盘契约**统一纳入既有防漂移体系**（ADR-0005 的 `app/shared/contracts/` zod 单一事实源 + `fixtures/contracts/` golden fixtures），不另起炉灶：
 
 | 契约 | 落点 | 角色 |
 |---|---|---|
-| `.node/node.json` | `core/contracts/node.ts` | 节点身份+元/扩展字段，扫描重建的核心接缝 |
-| `.eidon/templates/{id}/L{n}.{name}.v{ver}.json` | `core/contracts/template.ts` | 三层名字+字段集，版本化不可变 |
+| `.node/node.json` | `app/shared/contracts/node.ts` | 节点身份+元/扩展字段，扫描重建的核心接缝 |
+| `.eidon/templates/{id}/L{n}.{name}.v{ver}.json` | `app/shared/contracts/template.ts` | 三层名字+字段集，版本化不可变 |
 | `.eidon/` 系统区布局 | 契约/常量集中声明 | 系统区目录形态（见 ADR-0017） |
 
 **统一规范化要点：**
@@ -17,5 +17,8 @@ EIDON 数据层的全部磁盘契约**统一纳入既有防漂移体系**（ADR-
 
 ## Consequences
 
-- 本期 conformance：`pnpm contracts:check` 覆盖 node/template；提交改契约必跑。
+- 本期 conformance：`pnpm contracts:check` 覆盖 node/template/todos；提交改契约必跑。
 - 后续若引入 trash 等磁盘元数据，同样先进契约再实现（不在本期）。
+
+---
+> **注：** 实现路径以 ADR-0025（四层架构）与 AGENTS.md §2 / 代码为准。

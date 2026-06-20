@@ -27,26 +27,14 @@ jobs:
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: ./app/src-tauri -> target
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --version 0.22.1 --locked
-
-      - name: Run cargo audit
-        working-directory: app/src-tauri
-        run: cargo audit
-
       - name: Install dependencies
         run: pnpm install --dir app --frozen-lockfile --ignore-scripts
 
       - name: Lint
         run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Test (core)
         run: pnpm test:core
@@ -54,5 +42,5 @@ jobs:
       - name: Contracts check
         run: pnpm contracts:check
 
-      - name: Web build
+      - name: Build
         run: pnpm build
