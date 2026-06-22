@@ -35,13 +35,16 @@ import { agentDir, agentSessionsDir, bridgeDataDir } from "../capabilities/ai/pa
 import {
   BRIDGE_PLATFORMS,
   createAdapter,
+  getBridgeSessionFile,
   getWechatQrcode,
   pollWechatQrcodeStatus,
   readBindings,
   readBridgeCreds,
+  reconcileBridgeIndex,
   removeBinding,
   setBinding,
   setBridgeCreds,
+  setBridgeSessionFile,
   type BridgeAdapter,
   type BridgeInboundMessage,
   type BridgeRuntimeState,
@@ -103,6 +106,7 @@ import {
   listAvailableModels,
   listProviderNames,
   listSkills as discoverSkills,
+  type PromptImage,
 } from "../domain/ai";
 import { searchInDir } from "../capabilities/knowledge/search";
 import { emitEvent } from "../ipc/emit";
@@ -163,6 +167,8 @@ class AiService {
   private readonly bridgeAdapters = new Map<BridgePlatform, BridgeAdapter>();
   private readonly bridgeState = new Map<BridgePlatform, { state: BridgeRuntimeState; error: string | null }>();
   private readonly bridgeSessions = new Map<string, AiSession>();
+  /** per-sessionKey 串行队列：保证同一会话的入站消息顺序处理，不抢同一 AiSession 的流。 */
+  private readonly bridgeQueues = new Map<string, Promise<void>>();
   private wechatLoginCancelled = false;
 
   // ── providers / models ───────────────────────────────────────────────
@@ -684,6 +690,7 @@ class AiService {
     for (const b of (await readBindings()).bindings) {
       if (b.enabled && b.agentId) {
         try {
+          reconcileBridgeIndex(b.agentId); // 清理指向已删会话文件的孤儿索引
           await this.startBridge(b.platform);
         } catch {
           // 单平台启动失败不阻断其余。
@@ -729,6 +736,10 @@ class AiService {
       }
       // waiting → 继续轮询
     }
+    // 轮询额度用尽仍未确认：明确告知二维码过期，避免 UI 静默卡在「等待扫码」。
+    if (!this.wechatLoginCancelled) {
+      emitEvent("eidon:bridge-wechat-qr", { status: "expired" });
+    }
   }
 
   cancelWechatLogin(): void {
@@ -768,6 +779,9 @@ class AiService {
         this.bridgeSessions.delete(key);
       }
     }
+    for (const key of this.bridgeQueues.keys()) {
+      if (key.startsWith(`${platform}_`)) this.bridgeQueues.delete(key);
+    }
   }
 
   private onBridgeStatus(platform: BridgePlatform, state: BridgeRuntimeState, error?: string): void {
@@ -782,7 +796,7 @@ class AiService {
     });
   }
 
-  /** 入站外部消息 → 路由到绑定 Agent 的桥接会话 → prompt → 回发文本。 */
+  /** 入站外部消息 → 按 sessionKey 串行 → 路由到绑定 Agent 的桥接会话 → typing 包裹 prompt → 回发。 */
   private async onBridgeInbound(
     platform: BridgePlatform,
     agentId: string,
@@ -797,36 +811,122 @@ class AiService {
     const adapter = this.bridgeAdapters.get(platform);
     if (!adapter) return;
     const sessionKey = `${platform}_${msg.isGroup ? "group" : "dm"}_${msg.chatId}@${agentId}`;
+    // 同一会话串行：避免并发入站消息抢占同一 AiSession 的流式输出。
+    const prev = this.bridgeQueues.get(sessionKey) ?? Promise.resolve();
+    const next = prev
+      .catch(() => {})
+      .then(() => this.handleBridgeMessage(agentId, adapter, sessionKey, msg));
+    this.bridgeQueues.set(sessionKey, next);
+    try {
+      await next;
+    } finally {
+      if (this.bridgeQueues.get(sessionKey) === next) this.bridgeQueues.delete(sessionKey);
+    }
+  }
+
+  /** 处理单条入站消息（已串行化）：typing 包裹 prompt，出错/空回复都给兜底，绝不静默。 */
+  private async handleBridgeMessage(
+    agentId: string,
+    adapter: BridgeAdapter,
+    sessionKey: string,
+    msg: BridgeInboundMessage,
+  ): Promise<void> {
     let session = this.bridgeSessions.get(sessionKey);
     if (!session) {
-      session = await this.buildSession(agentId, { role: "bridge" });
+      // 重启续接：索引里有落盘会话则 open 续接历史，否则新建并登记。
+      const existing = getBridgeSessionFile(agentId, sessionKey);
+      session = await this.buildSession(agentId, { role: "bridge", sessionFile: existing ?? undefined });
       this.bridgeSessions.set(sessionKey, session);
+      const file = session.getSessionFile();
+      if (file) setBridgeSessionFile(agentId, sessionKey, file, { senderName: msg.senderName });
     }
+    // 入站媒体：图片下载解密后作为视觉输入；其余（文件/视频）以文字提示让 Agent 知情。
+    const images = await this.collectBridgeImages(adapter, msg);
+    const promptText = this.buildBridgePromptText(msg, images.length > 0);
+
     let reply = "";
+    let errored = false;
     const off = session.subscribe((e) => {
       if (e.kind === "text_delta") reply += e.delta;
+      else if (e.kind === "error") errored = true;
     });
+    const typing = this.startBridgeTyping(adapter, msg.chatId);
     try {
-      await session.prompt(msg.text);
+      await session.prompt(promptText, images);
     } finally {
       off();
+      typing.stop();
     }
+    // 社交场景静默 = 失联：出错或空回复都回一句兜底。
     const text = reply.trim();
-    if (!text) return;
+    const outbound = text || (errored ? "抱歉，我这边刚出了点状况，请再发一次。" : "");
+    if (!outbound) return;
     try {
-      await adapter.sendText(msg.chatId, text);
+      await adapter.sendText(msg.chatId, outbound);
     } catch (err) {
       const config = await readAgentConfig(agentId);
       this.emitActivity({
         kind: "notify",
         agentId,
-        agentName: config?.name ?? platform,
-        label: `${platform} 回发失败`,
+        agentName: config?.name ?? msg.platform,
+        label: `${msg.platform} 回发失败`,
         status: "error",
         summary: err instanceof Error ? err.message : String(err),
         notify: false,
       });
     }
+  }
+
+  /** 「正在输入」周期续期（best-effort，每 4s）；stop 时清除。适配器不支持则空操作。 */
+  private startBridgeTyping(adapter: BridgeAdapter, chatId: string): { stop: () => void } {
+    const send = adapter.sendTyping?.bind(adapter);
+    const clear = adapter.clearTyping?.bind(adapter);
+    if (!send) return { stop: () => {} };
+    let stopped = false;
+    const tick = (): void => {
+      if (!stopped) void send(chatId).catch(() => {});
+    };
+    tick();
+    const timer = setInterval(tick, 4000);
+    return {
+      stop: () => {
+        stopped = true;
+        clearInterval(timer);
+        void clear?.(chatId).catch(() => {});
+      },
+    };
+  }
+
+  /** 下载入站图片附件并解密为视觉输入（单张失败不阻断；适配器不支持下载则空）。 */
+  private async collectBridgeImages(
+    adapter: BridgeAdapter,
+    msg: BridgeInboundMessage,
+  ): Promise<PromptImage[]> {
+    const refs = (msg.attachments ?? []).filter((a) => a.type === "image");
+    if (refs.length === 0 || !adapter.downloadMedia) return [];
+    const images: PromptImage[] = [];
+    for (const att of refs) {
+      try {
+        const buf = await adapter.downloadMedia(att.platformRef);
+        images.push({ data: buf.toString("base64"), mimeType: att.mimeType ?? "image/jpeg" });
+      } catch {
+        // 单张媒体下载失败不阻断对话。
+      }
+    }
+    return images;
+  }
+
+  /** 拼装喂给 Agent 的提示词：正文 + 非图片附件的文字提示；纯图片消息给占位语。 */
+  private buildBridgePromptText(msg: BridgeInboundMessage, hasImages: boolean): string {
+    const notes = (msg.attachments ?? [])
+      .filter((a) => a.type !== "image")
+      .map((a) => `[收到${a.type === "video" ? "视频" : "文件"}${a.filename ? `：${a.filename}` : ""}]`);
+    const body = msg.text.trim();
+    // 群聊：带上发言人名字，便于 Agent 在多人场景区分说话对象（私聊无需，避免冗余）。
+    const labeled = body && msg.isGroup && msg.senderName ? `${msg.senderName}：${body}` : body;
+    const parts = [labeled, ...notes].filter(Boolean);
+    if (parts.length === 0) return hasImages ? "（用户发来一张图片，请看图回应。）" : msg.text;
+    return parts.join("\n");
   }
 
   // ── internal ──────────────────────────────────────────────────────────
@@ -839,7 +939,7 @@ class AiService {
    */
   private async buildSession(
     agentId: string,
-    opts: { workspace?: string; role: SessionRole },
+    opts: { workspace?: string; role: SessionRole; sessionFile?: string },
   ): Promise<AiSession> {
     const config = await readAgentConfig(agentId);
     if (!config) throw new Error(`agent not found: ${agentId}`);
@@ -906,6 +1006,7 @@ class AiService {
       cwd,
       agentDir: agentDir(agentId),
       sessionsDir: agentSessionsDir(agentId),
+      sessionFile: opts.sessionFile,
       toolNames,
       customTools: customTools.length ? customTools : undefined,
     });

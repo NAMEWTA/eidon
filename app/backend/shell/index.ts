@@ -20,6 +20,7 @@ import { consistencyHandlers } from "../ipc/handlers/consistency.handlers";
 import { aiHandlers } from "../ipc/handlers/ai.handlers";
 import { setRuntimePaths } from "../capabilities/runtime-paths";
 import { createMainWindow } from "./window/main-window";
+import { installOutboundProxy } from "./net/outbound-proxy";
 import { createTray } from "./tray";
 import { setQuitting, isQuitting } from "./lifecycle/quit-state";
 import { aiService } from "../services/ai-service";
@@ -138,8 +139,9 @@ if (!gotLock) {
     createTray(mainWindow, __dirname);
     // 启动每 Agent 定时任务调度器（60s ticker；托盘使其关窗后仍运行，见 P3）。
     aiService.startScheduler();
-    // 拉起所有 enabled 的平台桥接（飞书/微信；托盘常驻使其关窗后仍在线，见 P4）。
-    void aiService.startEnabledBridges();
+    // 先装配「代理感知」出站 fetch（基于 net.fetch + 系统/环境代理，修微信 iLink「网络错误」），
+    // 再拉起所有 enabled 的平台桥接（飞书/微信；托盘常驻使其关窗后仍在线，见 P4），确保首个请求即走代理。
+    void installOutboundProxy().then(() => aiService.startEnabledBridges());
 
     app.on("activate", () => {
       const [existing] = BrowserWindow.getAllWindows();

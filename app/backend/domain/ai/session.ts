@@ -15,6 +15,7 @@ import {
   type AgentSessionEvent,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { ImageContent } from "@earendil-works/pi-ai";
 
 import type {
   AiSessionState,
@@ -88,10 +89,22 @@ export interface CreateSessionParams {
   agentDir: string;
   /** 会话持久化目录 `~/.eidon/agents/{id}/sessions`。 */
   sessionsDir: string;
+  /**
+   * 既有会话文件绝对路径：传入则 `SessionManager.open` 续接历史（桥接会话重启不丢上下文），
+   * 缺省/打开失败则新建。
+   */
+  sessionFile?: string;
   /** 内置工具白名单（P0：read/grep/find/ls）。 */
   toolNames: string[];
   /** EIDON 专属自定义工具（P1+）。 */
   customTools?: ToolDefinition[];
+}
+
+/** 一张随消息附带的图片（base64 + MIME）；由 service 从桥接附件下载解密后构造。 */
+export interface PromptImage {
+  /** 图片二进制的 base64（无 data: 前缀）。 */
+  data: string;
+  mimeType: string;
 }
 
 /** 单个会话句柄：包装 Pi AgentSession，对外只暴露 EIDON 语义。 */
@@ -99,6 +112,8 @@ export class AiSession {
   readonly id: string;
   readonly agentId: string;
   private readonly session: AgentSession;
+  /** 持久化管理器：用于回读会话文件路径（桥接索引登记）。 */
+  private readonly sessionManager: SessionManager;
   /** create 时注入：setModel 需用同一组凭证重建 registry。 */
   private readonly apiKeys: Record<string, string>;
   private readonly listeners = new Set<(e: AiStreamEvent) => void>();
@@ -108,11 +123,13 @@ export class AiSession {
     id: string,
     agentId: string,
     session: AgentSession,
+    sessionManager: SessionManager,
     apiKeys: Record<string, string>,
   ) {
     this.id = id;
     this.agentId = agentId;
     this.session = session;
+    this.sessionManager = sessionManager;
     this.apiKeys = apiKeys;
     this.unsubscribe = session.subscribe((ev) => {
       for (const e of projectEvent(this.id, ev)) this.dispatch(e);
@@ -131,6 +148,9 @@ export class AiSession {
     });
     await resourceLoader.reload();
 
+    // 既有会话文件 → open 续接历史；缺省/打开失败 → 新建（桥接会话重启不丢上下文）。
+    const sessionManager = AiSession.openOrCreateManager(params);
+
     const { session } = await createAgentSession({
       cwd: params.cwd,
       agentDir: params.agentDir,
@@ -138,19 +158,39 @@ export class AiSession {
       modelRegistry: registry,
       model,
       thinkingLevel: toPiThinkingLevel(params.thinkingLevel),
-      sessionManager: SessionManager.create(params.cwd, params.sessionsDir),
+      sessionManager,
       resourceLoader,
       tools: params.toolNames,
       customTools: params.customTools,
     });
 
-    return new AiSession(params.sessionId, params.agentId, session, params.apiKeys);
+    return new AiSession(params.sessionId, params.agentId, session, sessionManager, params.apiKeys);
   }
 
-  /** 发送用户消息（流式结果经事件推送）。 */
-  async prompt(text: string): Promise<void> {
+  /** 既有会话文件存在则 `open` 续接，否则（或打开失败）`create` 新建。 */
+  private static openOrCreateManager(params: CreateSessionParams): SessionManager {
+    if (params.sessionFile) {
+      try {
+        return SessionManager.open(params.sessionFile, params.sessionsDir);
+      } catch {
+        // 文件缺失/损坏：退回新建，避免一条坏历史阻断对话。
+      }
+    }
+    return SessionManager.create(params.cwd, params.sessionsDir);
+  }
+
+  /** 当前会话的持久化文件绝对路径（供桥接索引登记；尚未落盘则 null）。 */
+  getSessionFile(): string | null {
+    return this.sessionManager.getSessionFile() ?? null;
+  }
+
+  /** 发送用户消息（可附图片，供视觉模型；流式结果经事件推送）。 */
+  async prompt(text: string, images?: PromptImage[]): Promise<void> {
     try {
-      await this.session.prompt(text);
+      const imageContents: ImageContent[] | undefined = images?.length
+        ? images.map((img) => ({ type: "image", data: img.data, mimeType: img.mimeType }))
+        : undefined;
+      await this.session.prompt(text, imageContents ? { images: imageContents } : undefined);
     } catch (err) {
       this.dispatch({
         kind: "error",

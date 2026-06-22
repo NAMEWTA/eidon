@@ -12,3 +12,8 @@ export {
 } from "./bridge-store";
 export { createAdapter, BRIDGE_PLATFORMS } from "./manager";
 export { getWechatQrcode, pollWechatQrcodeStatus } from "./wechat-login";
+export {
+  getBridgeSessionFile,
+  setBridgeSessionFile,
+  reconcileBridgeIndex,
+} from "./bridge-session-index";

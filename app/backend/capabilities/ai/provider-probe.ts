@@ -3,8 +3,9 @@
  *
  * 对 OpenAI 兼容 / Anthropic / Google 端点发只读请求：`testProvider` 校验凭证/可达，
  * `fetchModels` 拉取模型 id 列表。供应商详情「连通性测试」与「读取模型」按钮用。
- * 仅 `node:*`/全局 fetch + shared，遵四层边界（AGENTS.md §2.1）。
+ * 仅 `node:*`/出站 fetch + shared，遵四层边界（AGENTS.md §2.1）。
  */
+import { outboundFetch } from "./net";
 
 export interface ProbeInput {
   baseUrl: string;
@@ -50,7 +51,7 @@ async function getJson(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(url, { method: "GET", headers, signal: ctrl.signal });
+    const res = await outboundFetch(url, { method: "GET", headers, signal: ctrl.signal });
     let data: unknown = null;
     try {
       data = await res.json();

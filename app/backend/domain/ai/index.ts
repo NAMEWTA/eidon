@@ -17,6 +17,7 @@ export {
   AiSession,
   projectEvent,
   type CreateSessionParams,
+  type PromptImage,
 } from "./session";
 
 export {

@@ -6,6 +6,8 @@
  */
 import QRCode from "qrcode";
 
+import { outboundFetch } from "../net";
+
 const BASE_URL = "https://ilinkai.weixin.qq.com";
 const BOT_TYPE = "3";
 
@@ -26,7 +28,7 @@ export interface WechatQrcode {
 export async function getWechatQrcode(): Promise<WechatQrcode> {
   try {
     const url = `${BASE_URL}/ilink/bot/get_bot_qrcode?bot_type=${BOT_TYPE}`;
-    const res = await fetch(url, { headers: loginHeaders() });
+    const res = await outboundFetch(url, { headers: loginHeaders() });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       return { ok: false, error: `HTTP ${res.status}: ${body}` };
@@ -62,7 +64,7 @@ export async function pollWechatQrcodeStatus(qrcodeId: string): Promise<WechatQr
     const timer = setTimeout(() => controller.abort(), 40_000);
     let res: Response;
     try {
-      res = await fetch(url, { headers: loginHeaders(), signal: controller.signal });
+      res = await outboundFetch(url, { headers: loginHeaders(), signal: controller.signal });
       clearTimeout(timer);
     } catch (err) {
       clearTimeout(timer);
