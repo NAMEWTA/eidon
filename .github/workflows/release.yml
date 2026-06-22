@@ -70,7 +70,7 @@ jobs:
 
       - name: Build & package ${{ matrix.name }}
         working-directory: app
-        run: pnpm build && electron-builder --publish never ${{ matrix.dist == 'dist:mac' && '--mac' || matrix.dist == 'dist:win' && '--win' || '--linux' }}
+        run: pnpm ${{ matrix.dist }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS 签名/公证（仓库 Secrets 配置后生效；缺失时 electron-builder 跳过签名出未签名包）。

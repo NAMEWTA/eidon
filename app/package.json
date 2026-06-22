@@ -19,10 +19,10 @@
     "test:core": "vitest run shared backend",
     "test:ui": "vitest run frontend",
     "contracts:check": "vitest run shared/__tests__/contracts",
-    "dist": "pnpm build && electron-builder",
-    "dist:mac": "pnpm build && electron-builder --mac",
-    "dist:win": "pnpm build && electron-builder --win",
-    "dist:linux": "pnpm build && electron-builder --linux"
+    "dist": "pnpm build && electron-builder --publish never",
+    "dist:mac": "pnpm build && electron-builder --publish never --mac",
+    "dist:win": "pnpm build && electron-builder --publish never --win",
+    "dist:linux": "pnpm build && electron-builder --publish never --linux"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
