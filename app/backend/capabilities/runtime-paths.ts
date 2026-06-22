@@ -13,12 +13,19 @@ export interface RuntimePaths {
   userConfig: string;
   /** 内置字典目录（en_US.aff/.dic 所在），生产=resourcesPath/dicts，dev=app/resources/dicts。 */
   dicts: string;
+  /**
+   * AI-Native 全局主目录 `~/.eidon`（决策 Q1：Agent 是跨工作区常驻助手）。
+   * 存 agents/{id}/、providers.json、auth.json、channels.json（见 shared/contracts/ai）。
+   * main 启动时注入 `os.homedir()/.eidon`；能力层只读此纯字符串，不 import electron。
+   */
+  aiHome: string;
 }
 
 let paths: RuntimePaths = {
   userData: "",
   userConfig: "",
   dicts: "",
+  aiHome: "",
 };
 
 /** main/index.ts 启动时注入真实路径。 */

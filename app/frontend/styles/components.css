@@ -1536,8 +1536,8 @@ body.rs-splitter--dragging .rs-splitter {
 }
 .settings__body[data-active-cat="basics"] > [data-cat="basics"],
 .settings__body[data-active-cat="templates"] > [data-cat="templates"],
+.settings__body[data-active-cat="ai"] > [data-cat="ai"],
 .settings__body[data-active-cat="writing"] > [data-cat="writing"],
-.settings__body[data-active-cat="sync"] > [data-cat="sync"],
 .settings__body[data-active-cat="export"] > [data-cat="export"],
 .settings__body[data-active-cat="advanced"] > [data-cat="advanced"] {
   display: flex;

@@ -17,6 +17,7 @@ export { nodesBridge } from "./nodes";
 export { templatesBridge } from "./templates";
 export { todosBridge } from "./todos";
 export { consistencyBridge } from "./consistency";
+export { aiBridge } from "./ai";
 
 export {
   listen,

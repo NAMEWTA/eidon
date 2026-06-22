@@ -13,11 +13,11 @@ export const SETTINGS_LS_KEY = 'eidon.settings.v1';
 
 /** 左抽屉视图：文件资源 / 全局搜索 / 日历 / 待办；null = 收起。 */
 export type LeftPanelView = 'explorer' | 'search' | 'calendar' | 'todos' | null;
-/** 右抽屉视图：大纲 / 节点属性 / 反向链接 / 标签 / 历史；null = 收起。 */
-export type RightPanelView = 'outline' | 'node' | 'backlinks' | 'tags' | 'history' | null;
+/** 右抽屉视图：AI 对话 / 大纲 / 节点属性 / 反向链接 / 标签 / 历史；null = 收起。 */
+export type RightPanelView = 'ai' | 'outline' | 'node' | 'backlinks' | 'tags' | 'history' | null;
 
 const LEFT_PANEL_VIEWS: ReadonlyArray<Exclude<LeftPanelView, null>> = ['explorer', 'search', 'calendar', 'todos'];
-const RIGHT_PANEL_VIEWS: ReadonlyArray<Exclude<RightPanelView, null>> = ['outline', 'node', 'backlinks', 'tags', 'history'];
+const RIGHT_PANEL_VIEWS: ReadonlyArray<Exclude<RightPanelView, null>> = ['ai', 'outline', 'node', 'backlinks', 'tags', 'history'];
 
 // CJK + generic fallback appended after the user's chosen face. This way
 // Latin glyphs come from the user's pick while CJK still falls back to

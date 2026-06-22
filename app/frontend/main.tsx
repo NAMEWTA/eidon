@@ -16,6 +16,8 @@ import "./styles/hljs-theme.css";
 import "./styles/preview.css";
 import "./styles/editor.css";
 import "./styles/components.css";
+import "./styles/ai.css";
+import "./styles/settings.css";
 import "katex/dist/katex.min.css";
 import { subscribeDomEffects } from "./effects/dom-effects";
 import { App } from "./App";

@@ -42,6 +42,7 @@ import { MarkdownHelp } from './components/dialogs/MarkdownHelp';
 import { GlobalSearch } from './components/panels/GlobalSearch';
 import { CjkProofread } from './components/dialogs/CjkProofread';
 import { ReadingView } from './components/editor/ReadingView';
+import { AiPanel } from './components/ai/AiPanel';
 import { AboutDialog } from './components/dialogs/AboutDialog';
 import { UnsavedDialog } from './components/dialogs/UnsavedDialog';
 import { FileChangedDialog } from './components/dialogs/FileChangedDialog';
@@ -60,6 +61,7 @@ import { useWorkspaceStore } from './stores/workspace';
 import { useWorkspaceIndexStore } from './stores/workspaceIndex';
 import { useNodesStore } from './stores/nodes';
 import { useTodosStore } from './stores/todos';
+import { useAiStore } from './stores/ai';
 import { splitFrontMatter, stringifyFrontMatter } from './lib/frontmatter';
 import type { ScannedNode } from '@shared/models';
 
@@ -335,6 +337,8 @@ export function App() {
     autoCommit.start();
     sessionRestore.start();
     usePomodoroStore.getState().rehydrate();
+    // 尽早订阅 AI 后台活动事件（cron 完成 / notify 回灌），使其不依赖 AI 面板是否打开。
+    void useAiStore.getState().init();
     (window as unknown as { usePomodoroStore?: typeof usePomodoroStore }).usePomodoroStore = usePomodoroStore;
     try {
       localStorage.removeItem('eidon.window.v1');
@@ -616,6 +620,7 @@ export function App() {
   // ---- 右抽屉面板标题（按视图类型）----
   const rightDrawerTitle = (() => {
     switch (rightPanelView) {
+      case 'ai': return t('activitybar.ai');
       case 'outline': return t('rsPane.outline');
       case 'node': return t('activitybar.node');
       case 'backlinks': return t('rsPane.backlinks');
@@ -699,6 +704,7 @@ export function App() {
                   </button>
                 </div>
                 <div className="rightdrawer__body">
+                  {rightPanelView === 'ai' && <AiPanel />}
                   {rightPanelView === 'outline' && <Outline cursorLine={cursorLine} onGoto={onOutlineGoto} />}
                   {rightPanelView === 'node' && (
                     selectedStructureNode ? (

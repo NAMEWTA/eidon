@@ -42,8 +42,9 @@ export function ActivityBar({ side }: ActivityBarProps) {
     { id: 'todos', icon: 'todos', label: t('activitybar.todos'), viewId: 'todos' },
   ];
 
-  // ---- 右侧按钮项 ----
+  // ---- 右侧按钮项（AI 对话置顶）----
   const rightItems: ActivityBarItem[] = [
+    { id: 'ai', icon: 'sparkles', label: t('activitybar.ai'), viewId: 'ai' },
     { id: 'outline', icon: 'outline', label: t('activitybar.outline'), viewId: 'outline' },
     { id: 'node', icon: 'folder-tree', label: t('activitybar.node'), viewId: 'node' },
     { id: 'backlinks', icon: 'git-commit', label: t('activitybar.backlinks'), viewId: 'backlinks' },

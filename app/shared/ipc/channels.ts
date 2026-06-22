@@ -11,14 +11,23 @@
  * 通道命名：`<domain>:<verb>`。
  */
 import type {
+  AgentDetail,
+  AgentSummary,
   AggregatedTodo,
+  AiSessionState,
   AppBuildInfo,
   BacklinkRef,
+  BridgeBinding,
+  BridgeStatus,
   CjkIssue,
   CloudFolderInfo,
   CommitMeta,
   ConsistencyReport,
+  CreateAgentInput,
   CreateNodeInput,
+  CronJob,
+  CronJobInput,
+  CronJobPatch,
   DialogFilter,
   DiffResult,
   FileReadResult,
@@ -26,12 +35,14 @@ import type {
   IndexEntry,
   InvalidTemplate,
   Misspelling,
+  ModelInfo,
   MoveNodeInput,
   NodeMutationResult,
   NodeRef,
   NormalizationResult,
   PandocExportArgs,
   PandocInfo,
+  ProviderInfo,
   PromoteFolderInput,
   PruneResult,
   RenameNodeInput,
@@ -39,14 +50,23 @@ import type {
   SearchHit,
   SessionPayload,
   SiblingSession,
+  SkillInfo,
   TagCount,
   Template,
+  ToolInfo,
   TemplateInput,
+  UpdateAgentPatch,
   UpdateNodeFieldsInput,
   UpgradeNodeSchemaInput,
   WorkspaceStatus,
 } from "../models";
-import type { NodeTodoFile } from "../contracts";
+import type {
+  BridgePlatform,
+  Channel as ChannelEntity,
+  ModelMeta,
+  ModelRef,
+  NodeTodoFile,
+} from "../contracts";
 
 /** 无参请求的占位类型（renderer 传 `{}`）。 */
 export type NoReq = Record<string, never>;
@@ -271,6 +291,104 @@ export interface IpcContract {
     req: { workspace: string };
     res: NormalizationResult;
   };
+
+  // ── providers（模型提供商 / 模型配置；全局 ~/.eidon）─────────────────────
+  "ai:isAvailable": { req: NoReq; res: boolean };
+  "providers:list": { req: NoReq; res: ProviderInfo[] };
+  "providers:listModels": { req: { provider?: string }; res: ModelInfo[] };
+  "providers:setKey": { req: { provider: string; apiKey: string }; res: void };
+  "providers:setDefaultModel": { req: { model: ModelRef | null }; res: void };
+  "providers:getDefaultModel": { req: NoReq; res: ModelRef | null };
+  "providers:setConfig": {
+    req: {
+      provider: string;
+      patch: { enabled?: boolean; baseUrl?: string | null; api?: string | null; headers?: Record<string, string> };
+    };
+    res: void;
+  };
+  "providers:setModelMeta": {
+    req: { provider: string; modelId: string; meta: ModelMeta };
+    res: void;
+  };
+  "providers:removeModelMeta": { req: { provider: string; modelId: string }; res: void };
+  "providers:remove": { req: { provider: string }; res: void };
+  "providers:test": {
+    req: { provider: string; baseUrl: string; api: string; apiKey?: string };
+    res: boolean;
+  };
+  "providers:fetchModels": {
+    req: { provider: string; baseUrl: string; api: string; apiKey?: string };
+    res: string[];
+  };
+
+  // ── ai（会话控制；流式结果经 eidon:ai-stream 事件推送）──────────────────
+  "ai:newSession": {
+    req: { agentId?: string; workspace?: string };
+    res: { sessionId: string; state: AiSessionState };
+  };
+  "ai:prompt": { req: { sessionId: string; text: string }; res: void };
+  "ai:cancel": { req: { sessionId: string }; res: void };
+  "ai:setModel": { req: { sessionId: string; model: ModelRef }; res: boolean };
+  "ai:disposeSession": { req: { sessionId: string }; res: void };
+  "ai:sessionState": {
+    req: { sessionId: string };
+    res: AiSessionState | null;
+  };
+
+  // ── agents（多 Agent CRUD；全局 ~/.eidon/agents）─────────────────────────
+  "agents:list": { req: NoReq; res: AgentSummary[] };
+  "agents:get": { req: { agentId: string }; res: AgentDetail | null };
+  "agents:create": { req: CreateAgentInput; res: AgentSummary };
+  "agents:update": {
+    req: { agentId: string; patch: UpdateAgentPatch };
+    res: AgentSummary;
+  };
+  "agents:delete": { req: { agentId: string }; res: void };
+
+  // ── tools / skills（全局工具管理 + skill 发现）───────────────────────────
+  "tools:list": { req: NoReq; res: ToolInfo[] };
+  "tools:setEnabled": { req: { name: string; enabled: boolean }; res: void };
+  "skills:list": { req: { workspace?: string }; res: SkillInfo[] };
+
+  // ── cron（每 Agent 定时任务）─────────────────────────────────────────────
+  "cron:list": { req: { agentId: string }; res: CronJob[] };
+  "cron:add": { req: { agentId: string; input: CronJobInput }; res: CronJob };
+  "cron:update": {
+    req: { agentId: string; jobId: string; patch: CronJobPatch };
+    res: CronJob | null;
+  };
+  "cron:toggle": { req: { agentId: string; jobId: string }; res: CronJob | null };
+  "cron:remove": { req: { agentId: string; jobId: string }; res: void };
+
+  // ── channels（多 Agent 群聊）─────────────────────────────────────────────
+  "channels:list": { req: NoReq; res: ChannelEntity[] };
+  "channels:create": { req: { name: string; members: string[] }; res: ChannelEntity };
+  "channels:update": {
+    req: { id: string; patch: { name?: string; members?: string[] } };
+    res: ChannelEntity | null;
+  };
+  "channels:delete": { req: { id: string }; res: void };
+  "channels:prompt": {
+    req: { channelId: string; text: string; workspace?: string };
+    res: void;
+  };
+
+  // ── bridge（多平台接入：飞书 + 微信官方 iLink）─────────────────────────────
+  "bridge:listBindings": { req: NoReq; res: BridgeBinding[] };
+  "bridge:status": { req: NoReq; res: BridgeStatus[] };
+  "bridge:bind": {
+    req: {
+      platform: BridgePlatform;
+      agentId: string | null;
+      creds?: Record<string, string>;
+      enabled?: boolean;
+    };
+    res: void;
+  };
+  "bridge:setEnabled": { req: { platform: BridgePlatform; enabled: boolean }; res: void };
+  "bridge:unbind": { req: { platform: BridgePlatform }; res: void };
+  "bridge:wechatStartLogin": { req: NoReq; res: void };
+  "bridge:wechatCancelLogin": { req: NoReq; res: void };
 }
 
 export type Channel = keyof IpcContract;
@@ -368,6 +486,49 @@ const CHANNEL_PRESENCE: Record<Channel, true> = {
   "todos:writeNode": true,
   "consistency:check": true,
   "consistency:normalize": true,
+  "ai:isAvailable": true,
+  "providers:list": true,
+  "providers:listModels": true,
+  "providers:setKey": true,
+  "providers:setDefaultModel": true,
+  "providers:getDefaultModel": true,
+  "providers:setConfig": true,
+  "providers:setModelMeta": true,
+  "providers:removeModelMeta": true,
+  "providers:remove": true,
+  "providers:test": true,
+  "providers:fetchModels": true,
+  "ai:newSession": true,
+  "ai:prompt": true,
+  "ai:cancel": true,
+  "ai:setModel": true,
+  "ai:disposeSession": true,
+  "ai:sessionState": true,
+  "agents:list": true,
+  "agents:get": true,
+  "agents:create": true,
+  "agents:update": true,
+  "agents:delete": true,
+  "tools:list": true,
+  "tools:setEnabled": true,
+  "skills:list": true,
+  "cron:list": true,
+  "cron:add": true,
+  "cron:update": true,
+  "cron:toggle": true,
+  "cron:remove": true,
+  "channels:list": true,
+  "channels:create": true,
+  "channels:update": true,
+  "channels:delete": true,
+  "channels:prompt": true,
+  "bridge:listBindings": true,
+  "bridge:status": true,
+  "bridge:bind": true,
+  "bridge:setEnabled": true,
+  "bridge:unbind": true,
+  "bridge:wechatStartLogin": true,
+  "bridge:wechatCancelLogin": true,
 };
 
 export const ALL_CHANNELS = Object.keys(CHANNEL_PRESENCE) as Channel[];

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "bindings": [
+    {
+      "platform": "feishu",
+      "agentId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "enabled": true,
+      "label": "团队飞书机器人"
+    },
+    {
+      "platform": "wechat",
+      "agentId": null,
+      "enabled": false,
+      "label": ""
+    }
+  ]
+}

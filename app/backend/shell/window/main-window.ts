@@ -11,6 +11,7 @@ import windowStateKeeper from "electron-window-state";
 import { setEventTarget } from "../../ipc/emit";
 import { clampWindowToMonitor } from "./clamp";
 import { shouldPreventClose } from "../lifecycle/close-guard";
+import { isQuitting } from "../lifecycle/quit-state";
 import { emitEvent } from "../../ipc/emit";
 
 export function createMainWindow(dirnameMain: string, isDev: boolean): BrowserWindow {
@@ -49,8 +50,15 @@ export function createMainWindow(dirnameMain: string, isDev: boolean): BrowserWi
 
   win.on("closed", () => setEventTarget(null));
 
-  // 关闭守卫：主窗口未确认关闭 → 拦截并请前端检查未存内容。
+  // 关闭语义（托盘常驻，决策 Q2）：
+  //  - 非退出流程（普通关窗）→ 隐藏到托盘，主进程继续托管 cron/桥接。
+  //  - 退出流程（托盘退出 / Cmd+Q / before-quit）→ 走未存内容守卫后真正关闭。
   win.on("close", (e) => {
+    if (!isQuitting()) {
+      e.preventDefault();
+      win.hide();
+      return;
+    }
     if (shouldPreventClose()) {
       e.preventDefault();
       emitEvent("eidon:close-requested", undefined);

@@ -17,6 +17,12 @@ extraResources:
     to: dicts
     filter:
       - "**/*"
+  # 托盘图标（运行时经 process.resourcesPath/icons 解析，见 backend/shell/tray.ts）。
+  - from: resources/icons
+    to: icons
+    filter:
+      - "32x32.png"
+      - "icon.png"
 
 mac:
   category: public.app-category.productivity

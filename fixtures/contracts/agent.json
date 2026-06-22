@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "name": "默认助手",
+  "description": "通用知识库助手",
+  "avatar": null,
+  "model": { "provider": "anthropic", "id": "claude-sonnet-4-6" },
+  "params": { "thinkingLevel": "medium", "temperature": null },
+  "tools": { "enabled": [], "disabled": [] },
+  "skills": { "enabled": ["pi-sdk"] },
+  "commands": { "enabled": [] },
+  "visibility": "public",
+  "activatableByAgents": true,
+  "channelsEnabled": false,
+  "experience": { "enabled": true },
+  "yuan": "default",
+  "createdAt": "2026-06-20T08:00:00.000Z",
+  "updatedAt": "2026-06-20T08:00:00.000Z"
+}

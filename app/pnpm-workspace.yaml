@@ -1,9 +1,13 @@
 allowBuilds:
+  # pi SDK 的 Google provider / protobuf 传递依赖；EIDON 以 Anthropic 为先，二者均随包附带
+  # 预构建产物，无需跑其 postinstall 构建脚本（需要 Google provider 时再翻为 true）。
+  '@google/genai': false
   '@swc/core': true
   core-js: true
   electron: true
   # Windows 安装器构建工具：仅 Windows CI 出包时需要；本地/其它平台不跑其构建脚本。
   electron-winstaller: false
   esbuild: true
+  protobufjs: false
 minimumReleaseAgeExclude:
   - react-arborist@3.10.1

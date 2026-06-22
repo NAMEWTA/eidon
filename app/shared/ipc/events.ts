@@ -4,6 +4,14 @@
  * 通道名保留 `eidon:*` 前缀（`//` 仅历史装饰，Electron 通道名是普通字符串）。
  * main 侧用 `webContents.send(name, payload)` 发送；renderer 经 `window.eidon.on(name, cb)` 订阅。
  */
+import type {
+  AgentActivity,
+  AiSessionState,
+  AiStreamEvent,
+  BridgeInbound,
+  BridgeStatus,
+  WechatLoginState,
+} from "../models";
 
 export interface EidonEventMap {
   /** 原生菜单项点击 → 菜单项 id（renderer 内部据此分发命令）。 */
@@ -14,6 +22,18 @@ export interface EidonEventMap {
   "eidon:file-changed": string;
   /** 工作区索引更新 → 来源标记 "init" | "rescan" | "watch"。 */
   "eidon:index-updated": string;
+  /** AI 流式事件（text/thinking/tool 增量 + done/error；按 sessionId 分发）。 */
+  "eidon:ai-stream": AiStreamEvent;
+  /** AI 会话状态快照（model/isStreaming/messageCount 变化时推送）。 */
+  "eidon:ai-session": AiSessionState;
+  /** Agent 后台活动（cron 完成 / 主动 notify）→ 渲染层弹 Toast + 系统通知。 */
+  "eidon:agent-activity": AgentActivity;
+  /** 平台桥接连接态变化（每平台一条）。 */
+  "eidon:bridge-status": BridgeStatus;
+  /** 外部平台入站消息提示（仅用于 UI 感知）。 */
+  "eidon:bridge-inbound": BridgeInbound;
+  /** 微信扫码登录态（QR + 状态）。 */
+  "eidon:bridge-wechat-qr": WechatLoginState;
 }
 
 export type EidonEventName = keyof EidonEventMap;

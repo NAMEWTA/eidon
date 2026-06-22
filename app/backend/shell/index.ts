@@ -17,8 +17,12 @@ import { nodesHandlers } from "../ipc/handlers/nodes.handlers";
 import { templatesHandlers } from "../ipc/handlers/templates.handlers";
 import { todosHandlers } from "../ipc/handlers/todos.handlers";
 import { consistencyHandlers } from "../ipc/handlers/consistency.handlers";
+import { aiHandlers } from "../ipc/handlers/ai.handlers";
 import { setRuntimePaths } from "../capabilities/runtime-paths";
 import { createMainWindow } from "./window/main-window";
+import { createTray } from "./tray";
+import { setQuitting, isQuitting } from "./lifecycle/quit-state";
+import { aiService } from "../services/ai-service";
 import { buildAndSetMenu } from "./menu/build-menu";
 import { readSavedLanguage } from "./menu/locale";
 import {
@@ -42,6 +46,8 @@ function injectRuntimePaths(): void {
     userData: app.getPath("userData"),
     userConfig: app.getPath("userData"),
     dicts,
+    // AI-Native 全局主目录：~/.eidon（跨工作区常驻 Agent/凭证/频道，见决策 Q1）。
+    aiHome: join(app.getPath("home"), ".eidon"),
   });
 }
 
@@ -60,6 +66,7 @@ function allIpcHandlers(): IpcHandlers {
     ...templatesHandlers,
     ...todosHandlers,
     ...consistencyHandlers,
+    ...aiHandlers,
   };
   const loose = handlers as Record<string, (req: unknown) => unknown>;
   const wrapRoot = (channel: string, pick: (req: Record<string, unknown>) => unknown): void => {
@@ -126,15 +133,33 @@ if (!gotLock) {
     });
     buildAndSetMenu(readSavedLanguage());
     registerIpcHandlers(allIpcHandlers());
-    createMainWindow(__dirname, isDev);
+    const mainWindow = createMainWindow(__dirname, isDev);
+    // 托盘常驻（决策 Q2）：关窗隐藏到托盘，主进程继续托管 cron/桥接。
+    createTray(mainWindow, __dirname);
+    // 启动每 Agent 定时任务调度器（60s ticker；托盘使其关窗后仍运行，见 P3）。
+    aiService.startScheduler();
+    // 拉起所有 enabled 的平台桥接（飞书/微信；托盘常驻使其关窗后仍在线，见 P4）。
+    void aiService.startEnabledBridges();
 
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createMainWindow(__dirname, isDev);
+      const [existing] = BrowserWindow.getAllWindows();
+      if (existing) {
+        existing.show();
+        existing.focus();
+      } else {
+        createTray(createMainWindow(__dirname, isDev), __dirname);
+      }
     });
   });
 
+  // 进入退出流程：置退出意图（使主窗口 close 走真正关闭）+ 释放 AI 会话后台资源。
+  app.on("before-quit", () => {
+    setQuitting(true);
+    aiService.disposeAll();
+  });
+
   app.on("window-all-closed", () => {
-    // macOS 习惯：关闭所有窗口不退出；其它平台退出。
-    if (process.platform !== "darwin") app.quit();
+    // 托盘常驻：普通关窗只隐藏（窗口不销毁，本事件不触发）；仅退出流程中真正退出。
+    if (isQuitting()) app.quit();
   });
 }

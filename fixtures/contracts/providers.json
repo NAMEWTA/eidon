@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "defaultModel": { "provider": "anthropic", "id": "claude-sonnet-4-6" },
+  "providers": {
+    "anthropic": {
+      "enabled": true,
+      "baseUrl": null,
+      "api": "anthropic-messages",
+      "headers": { "x-proxy-auth": "token-123" },
+      "models": {
+        "claude-sonnet-4-6": { "displayName": "Sonnet 4.6", "context": 200000, "reasoning": true }
+      }
+    },
+    "openai": { "enabled": false, "baseUrl": null }
+  }
+}
