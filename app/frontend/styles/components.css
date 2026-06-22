@@ -1123,22 +1123,55 @@ body.rs-splitter--dragging .rs-splitter {
 .history__item + .history__item { margin-top: 2px; }
 .history__row { display: grid; grid-template-columns: auto auto 1fr; gap: 8px; align-items: baseline; width: 100%; background: transparent; border: 1px solid transparent; padding: 6px 10px; border-radius: 6px; cursor: pointer; text-align: left; transition: background 0.12s, border-color 0.12s; }
 .history__row:hover { background: var(--bg-hover); border-color: var(--border); }
-.history__row--open { background: var(--bg-hover); border-color: var(--border); }
+.history__row--active { background: var(--bg-hover); border-color: var(--accent, #ff9f40); }
 .history__sha { font-family: var(--font-mono); font-size: 11px; color: var(--accent, #ff9f40); font-weight: 500; }
 .history__time { font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .history__msg-line { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.history__diff-wrap { margin: 4px 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-soft); overflow: hidden; }
-.history__diff-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
-.history__restore { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 3px 10px; font-size: 11px; font-weight: 500; cursor: pointer; transition: background 0.12s, border-color 0.12s; }
-.history__restore:hover { background: var(--bg-hover); border-color: var(--accent, #ff9f40); color: var(--accent, #ff9f40); }
-.history__author { font-size: 10px; color: var(--text-faint); }
-.history__diff-loading, .history__diff-empty { padding: 12px; font-size: 11px; color: var(--text-faint); text-align: center; }
-.history__diff { margin: 0; padding: 8px 10px; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; white-space: pre; overflow-x: auto; max-height: 360px; overflow-y: auto; color: var(--text); }
-.history__hunk-hdr { display: block; color: var(--text-faint); background: var(--bg-elev); padding: 0 4px; border-radius: 3px; margin: 2px 0; }
-.history__line { display: block; }
-.history__line--add { background: rgba(46, 160, 67, 0.18); color: #2ea043; }
-.history__line--remove { background: rgba(248, 81, 73, 0.18); color: #f85149; }
-.history__line--context { color: var(--text-muted); }
+/* ---- DiffView（编辑器主区内的历史对比；diff 主体由 @pierre/diffs 经 Shadow DOM 自渲染，宿主仅给尺寸）---- */
+.diff-view { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
+.diff-view__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-shrink: 0; }
+.diff-view__title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.diff-view__comparing { font-size: 11px; font-weight: 600; color: var(--accent, #ff9f40); white-space: nowrap; }
+.diff-view__msg { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-view__author { font-size: 10px; color: var(--text-faint); white-space: nowrap; }
+.diff-view__actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.diff-view__toggle-group { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.diff-view__toggle { background: var(--bg); border: none; color: var(--text-muted); padding: 3px 12px; font-size: 11px; font-weight: 500; cursor: pointer; transition: background 0.12s, color 0.12s; }
+.diff-view__toggle + .diff-view__toggle { border-left: 1px solid var(--border); }
+.diff-view__toggle:hover { background: var(--bg-hover); color: var(--text); }
+.diff-view__toggle--active, .diff-view__toggle--active:hover { background: var(--accent, #ff9f40); color: #fff; }
+.diff-view__restore { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 3px 12px; font-size: 11px; font-weight: 500; cursor: pointer; transition: background 0.12s, border-color 0.12s, color 0.12s; }
+.diff-view__restore:hover { background: var(--bg-hover); border-color: var(--accent, #ff9f40); color: var(--accent, #ff9f40); }
+.diff-view__close { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; background: transparent; border: none; border-radius: 4px; color: var(--text-faint); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.diff-view__close:hover { background: var(--bg-hover); color: var(--text); }
+/* 左右/上下两侧标识：明确哪边是历史版本、哪边是当前可编辑。 */
+.diff-view__panes-head { display: flex; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-shrink: 0; }
+.diff-view__pane-label { flex: 1; min-width: 0; padding: 4px 12px; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.diff-view__pane-label--old { color: var(--text-muted); border-right: 1px solid var(--border); }
+.diff-view__pane-label--new { color: var(--accent, #ff9f40); }
+.diff-view__unified-hint { padding: 4px 12px; font-size: 11px; color: var(--text-faint); background: var(--bg-soft); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+
+/* 宿主带 cm-host：复用主编辑器底色（var(--bg) / 暗色 oneDark），绝不白底（防突兀）。 */
+.diff-view__host { position: relative; flex: 1; min-height: 0; }
+.diff-view__host .cm-mergeView { height: 100%; }
+.diff-view__loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-faint); font-size: 12px; background: var(--bg); z-index: 2; }
+
+/* 对比配色：merge 容器透明（露出编辑器底色，明暗一致）；仅给增/删/改语义淡色（绿增·红删）。 */
+.diff-view .cm-mergeView,
+.diff-view .cm-mergeViewEditors,
+.diff-view .cm-mergeViewEditor,
+.diff-view .cm-mergeSpacer { background: transparent; }
+.diff-view .cm-changedLine,
+.diff-view .cm-insertedLine { background: color-mix(in srgb, #2ea043 12%, transparent); }
+.diff-view .cm-changedText { background: color-mix(in srgb, #2ea043 26%, transparent); }
+.diff-view .cm-deletedChunk { background: color-mix(in srgb, #e5484d 10%, transparent); }
+.diff-view .cm-deletedLine,
+.diff-view .cm-deletedText { background: color-mix(in srgb, #e5484d 22%, transparent); }
+.diff-view .cm-changeGutter,
+.diff-view .cm-changedLineGutter,
+.diff-view .cm-deletedLineGutter { background: transparent; color: var(--text-faint); }
+.diff-view .cm-collapsedLines { background: var(--bg-elev); color: var(--text-faint); }
+.diff-view .cm-collapsedLines:hover { background: var(--bg-hover); }
 
 /* ---- ThemeMarketplace ---- */
 .tm__backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; justify-content: center; align-items: center; z-index: 1100; }

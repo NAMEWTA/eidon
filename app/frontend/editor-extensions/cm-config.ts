@@ -247,6 +247,13 @@ export function buildPhrases(lang: Lang): Record<string, string> {
   };
 }
 
+/** @codemirror/merge 折叠未改动行的占位文案（默认 "$ unchanged lines"，$ 为行数）的 i18n 覆盖。 */
+export function buildMergePhrases(lang: Lang): Record<string, string> {
+  const dict = resolveDict(lang) as Record<string, unknown>;
+  const diff = dict.diff as Record<string, string> | undefined;
+  return diff?.unchangedLines ? { '$ unchanged lines': diff.unchangedLines } : {};
+}
+
 interface ParsedListLine {
   /** 行首空白长度（列）。 */
   indent: number;
@@ -506,6 +513,121 @@ export function slashExt(handlers: EditorHandlers): Extension {
   });
 }
 
+/* 搜索/替换面板样式（⌘F / Ctrl+F），匹配 EIDON 主题。面板文字经 EditorState.phrases
+   facet 实现 i18n（翻译在 i18n 字典 cmFind 段）。抽成模块级常量，供主编辑器与历史对比视图复用。 */
+export const searchPanelTheme = EditorView.theme({
+  '.cm-panels': {
+    backgroundColor: 'var(--bg-chrome)',
+    borderBottom: '1px solid var(--border)',
+    padding: '4px 8px',
+    color: 'var(--text)',
+  },
+  '.cm-panels.cm-panels-top': {
+    borderBottom: '1px solid var(--border)',
+    borderTop: 'none',
+  },
+  '.cm-panel.cm-search': {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '2px 0',
+  },
+  '.cm-panels input': {
+    backgroundColor: 'var(--bg-elev)',
+    color: 'var(--text)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--r-sm)',
+    padding: '3px 8px',
+    fontFamily: 'var(--font-ui)',
+    fontSize: '13px',
+    outline: 'none',
+  },
+  '.cm-panels input:focus': {
+    borderColor: 'var(--accent)',
+  },
+  '.cm-panels button': {
+    backgroundColor: 'var(--bg-elev)',
+    color: 'var(--text)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--r-sm)',
+    padding: '2px 10px',
+    cursor: 'pointer',
+    fontFamily: 'var(--font-ui)',
+    fontSize: '12px',
+    lineHeight: '1.6',
+  },
+  '.cm-panels button:hover': {
+    backgroundColor: 'var(--bg-hover)',
+  },
+  '.cm-panels button:active': {
+    backgroundColor: 'var(--bg-active)',
+  },
+  '.cm-panels button[name="close"]': {
+    border: 'none',
+    color: 'var(--text-muted)',
+    fontSize: '14px',
+    padding: '0 4px',
+  },
+  '.cm-panels label': {
+    color: 'var(--text-muted)',
+    fontSize: '12px',
+    marginRight: '4px',
+  },
+  '.cm-panels input[type="checkbox"]': {
+    accentColor: 'var(--accent)',
+    marginRight: '2px',
+  },
+});
+
+/** buildDiffEditorExtensions 消费的设置切片（仅视觉/编辑相关）。 */
+export type DiffEditorSettings = Pick<
+  EditorBuildSettings,
+  'showLineNumbers' | 'wordWrap' | 'theme' | 'fontSize' | 'fontFamily' | 'language'
+>;
+
+/**
+ * 历史对比视图（DiffView，@codemirror/merge）单侧编辑器的扩展集。
+ * 刻意复用主编辑器的视觉与编辑核心——主题(cmThemeFor)/字号(fontSizeTheme)/行号/换行/
+ * markdown 高亮/搜索面板/撤销/默认快捷键——保证与主编辑器观感一致（防割裂）；
+ * 但不含 live 预览、斜杠命令、会话恢复、图片粘贴等有状态重插件：对比是源码态、瞬态。
+ * `editable=false` → 只读（split 左侧历史版本）；`onDocChanged` → 把可编辑侧改动回灌 tab。
+ */
+export function buildDiffEditorExtensions(opts: {
+  settings: DiffEditorSettings;
+  isMarkdown: boolean;
+  editable: boolean;
+  onDocChanged?: (text: string) => void;
+}): Extension[] {
+  const { settings: s, isMarkdown, editable, onDocChanged } = opts;
+  return [
+    history(),
+    drawSelection(),
+    indentOnInput(),
+    bracketMatching(),
+    highlightActiveLine(),
+    highlightSelectionMatches(),
+    search({ top: true }),
+    EditorState.phrases.of(buildPhrases(s.language)),
+    EditorState.phrases.of(buildMergePhrases(s.language)),
+    searchPanelTheme,
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+    lineNumberExt(s.showLineNumbers),
+    wrapExt(s.wordWrap),
+    isMarkdown ? markdownExt() : [],
+    cmThemeFor(s.theme),
+    fontSizeTheme(s.fontSize, s.fontFamily),
+    EditorView.editable.of(editable),
+    EditorState.readOnly.of(!editable),
+    onDocChanged
+      ? EditorView.updateListener.of((u) => {
+          if (u.docChanged) onDocChanged(u.state.doc.toString());
+        })
+      : [],
+  ];
+}
+
 /**
  * 组装完整扩展数组（对应 buildExtensions）。
  * Compartment 的初值就是当前设置；后续 Editor.tsx 通过 compartment.reconfigure 热切换。
@@ -523,73 +645,7 @@ export function buildEditorExtensions(ctx: EditorBuildCtx): Extension[] {
     highlightSelectionMatches(),
     search({ top: true }),
     c.phrases.of(EditorState.phrases.of(buildPhrases(settings.language))),
-    /* 搜索/替换面板样式（⌘F / Ctrl+F），匹配 EIDON 主题。
-       面板文字通过 EditorState.phrases facet 实现 i18n，
-       翻译定义在 i18n 字典的 cmFind 段中。 */
-    EditorView.theme({
-      '.cm-panels': {
-        backgroundColor: 'var(--bg-chrome)',
-        borderBottom: '1px solid var(--border)',
-        padding: '4px 8px',
-        color: 'var(--text)',
-      },
-      '.cm-panels.cm-panels-top': {
-        borderBottom: '1px solid var(--border)',
-        borderTop: 'none',
-      },
-      '.cm-panel.cm-search': {
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: '6px',
-        padding: '2px 0',
-      },
-      '.cm-panels input': {
-        backgroundColor: 'var(--bg-elev)',
-        color: 'var(--text)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--r-sm)',
-        padding: '3px 8px',
-        fontFamily: 'var(--font-ui)',
-        fontSize: '13px',
-        outline: 'none',
-      },
-      '.cm-panels input:focus': {
-        borderColor: 'var(--accent)',
-      },
-      '.cm-panels button': {
-        backgroundColor: 'var(--bg-elev)',
-        color: 'var(--text)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--r-sm)',
-        padding: '2px 10px',
-        cursor: 'pointer',
-        fontFamily: 'var(--font-ui)',
-        fontSize: '12px',
-        lineHeight: '1.6',
-      },
-      '.cm-panels button:hover': {
-        backgroundColor: 'var(--bg-hover)',
-      },
-      '.cm-panels button:active': {
-        backgroundColor: 'var(--bg-active)',
-      },
-      '.cm-panels button[name="close"]': {
-        border: 'none',
-        color: 'var(--text-muted)',
-        fontSize: '14px',
-        padding: '0 4px',
-      },
-      '.cm-panels label': {
-        color: 'var(--text-muted)',
-        fontSize: '12px',
-        marginRight: '4px',
-      },
-      '.cm-panels input[type="checkbox"]': {
-        accentColor: 'var(--accent)',
-        marginRight: '2px',
-      },
-    }),
+    searchPanelTheme,
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
     c.lineNum.of(lineNumberExt(settings.showLineNumbers)),

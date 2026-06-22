@@ -40,6 +40,10 @@ export interface Settings {
   theme: Theme;
   viewMode: ViewMode;
   editorRender: EditorRender;
+  /** 编辑器内 diff 对比的版式：split=并排双栏 / stacked=统一单列（瞬态目标在 stores/diffView）。 */
+  diffLayout: 'split' | 'stacked';
+  /** diff 是否折叠未改动行：false=显示全部内容（默认）/ true=仅看修改处（折叠未改动区段）。 */
+  diffCollapseUnchanged: boolean;
   startupViewMode: ViewMode | null;
   fontSize: number;
   fontFamily: string;
@@ -136,6 +140,8 @@ export function defaultSettings(): Settings {
     theme: prefersDark ? 'dark' : 'light',
     viewMode: 'edit',
     editorRender: 'source',
+    diffLayout: 'stacked',
+    diffCollapseUnchanged: false,
     startupViewMode: null,
     fontSize: 14,
     fontFamily: 'JetBrains Mono',
@@ -268,6 +274,8 @@ export function loadSettings(raw: string | null): Settings {
       merged.lastNonReadingViewMode = (toLayout(merged.lastNonReadingViewMode) ?? 'edit') as ViewMode;
       // editorRender 缺省 / 篡改兜底。
       if (merged.editorRender !== 'source' && merged.editorRender !== 'live') merged.editorRender = 'source';
+      // diffLayout 缺省 / 篡改兜底。
+      if (merged.diffLayout !== 'split' && merged.diffLayout !== 'stacked') merged.diffLayout = 'split';
       // 主题精简迁移：仅保留 light / dark。旧的 6 套主题（nord / solarized-* /
       // monokai / github-light / dracula）按明暗回落，避免老用户读到失效主题空白。
       if (merged.theme !== 'light' && merged.theme !== 'dark') {

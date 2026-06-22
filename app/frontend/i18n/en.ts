@@ -406,6 +406,19 @@ export const en = {
     loading: 'Loading…',
     diffUnavailable: 'No diff available.',
   },
+  diff: {
+    comparing: 'Comparing with {sha}',
+    stacked: 'Inline',
+    split: 'Split',
+    showAll: 'All',
+    onlyChanges: 'Changes',
+    close: 'Close diff',
+    historyLabel: 'History · {sha}',
+    currentLabel: 'Current (editable)',
+    unifiedHint: 'Above: history {sha} · below: current (editable)',
+    // @codemirror/merge 折叠占位（$ = 行数，由 CodeMirror phrase 替换，勿改成 {} ）
+    unchangedLines: '$ unchanged lines',
+  },
   statusBar: {
     selection: 'selected: {words} words / {chars} chars',
     selectionTooltip: 'Word and character count for the current selection',

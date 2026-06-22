@@ -49,6 +49,7 @@ import { FileChangedDialog } from './components/dialogs/FileChangedDialog';
 import { Toast } from './components/shared/Toast';
 import { useTabsStore } from './stores/tabs';
 import { useSettingsStore } from './stores/settings';
+import { useDiffViewStore } from './stores/diffView';
 import { useTilesStore } from './stores/tiles';
 import { usePomodoroStore } from './stores/pomodoro';
 import { useFiles } from './hooks/useFiles';
@@ -314,6 +315,7 @@ export function App() {
 
   useEffect(() => {
     setSelectedNodeId(null);
+    useDiffViewStore.getState().close(); // 切工作区关闭历史对比视图
   }, [currentFolder]);
 
   // 节点级待办：工作区/节点树变化时重新聚合 .node/todos.json 并（首次）启动提醒调度器。
@@ -326,6 +328,7 @@ export function App() {
   const activeTabId = useTabsStore((s) => s.activeId);
   useEffect(() => {
     setSelectedNodeId(null);
+    useDiffViewStore.getState().close(); // 切 tab 关闭历史对比视图
     // 打开/切到某个真实文件时收起概览页（让位给编辑器）。
     if (activeTabId) setOverviewOpen(false);
   }, [activeTabId]);

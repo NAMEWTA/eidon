@@ -1,14 +1,16 @@
 /**
- * HistoryPanel.tsx — AutoGit 每文档历史面板。
- * 列出触及当前文档的提交（新→旧），点击展开 unified diff，Restore 回滚工作副本并同步标签缓冲。
+ * HistoryPanel.tsx — AutoGit 每文档历史面板（版本列表）。
+ * 列出触及当前文档的提交（新→旧）。点击某版本 → 在编辑器主区打开「当前 ↔ 该版本」diff
+ * （经 diffView store，渲染见 components/editor/DiffView）。再点同一版本收起；Restore 已移至 diff 工具栏。
  * watch → useEffect。
  */
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '../shared/Icons';
 import { useTabsStore } from '../../stores/tabs';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { useSettingsStore } from '../../stores/settings';
-import { useGitHistoryStore, type CommitMeta, type DiffResult } from '../../stores/gitHistory';
+import { useGitHistoryStore, type CommitMeta } from '../../stores/gitHistory';
+import { useDiffViewStore } from '../../stores/diffView';
 import { useToastsStore } from '../../stores/toasts';
 import { useI18n } from '../../i18n';
 
@@ -19,10 +21,10 @@ export function HistoryPanel({ onClose }: { onClose?: () => void }) {
   const headSha = useGitHistoryStore((s) => s.status?.headSha);
   const ghLoading = useGitHistoryStore((s) => s.loading);
   const initialized = useGitHistoryStore((s) => s.isInitialized());
+  // 当前正在编辑器里对比的版本（高亮列表对应行）。
+  const activeDiffSha = useDiffViewStore((s) => s.sha);
   const [commits, setCommits] = useState<CommitMeta[]>([]);
   const [loading, setLoading] = useState(false);
-  const [expandedSha, setExpandedSha] = useState<string | null>(null);
-  const [diffCache, setDiffCache] = useState<Record<string, DiffResult | null>>({});
 
   async function reload() {
     if (!folder || !activeFile) {
@@ -50,17 +52,14 @@ export function HistoryPanel({ onClose }: { onClose?: () => void }) {
     }
   }
 
-  // folder / activeFile 变化：重置展开 + 清缓存 + 重载。
+  // folder / activeFile 变化：重载（diff 视图由 App 层在切 tab/工作区时统一关闭）。
   useEffect(() => {
-    setExpandedSha(null);
-    setDiffCache({});
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder, activeFile]);
 
-  // HEAD 移动：清缓存 + 重载。
+  // HEAD 移动：重载。
   useEffect(() => {
-    setDiffCache({});
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headSha]);
@@ -76,33 +75,12 @@ export function HistoryPanel({ onClose }: { onClose?: () => void }) {
     }
   }
 
-  async function toggleRow(sha: string) {
-    if (expandedSha === sha) {
-      setExpandedSha(null);
-      return;
-    }
-    setExpandedSha(sha);
-    if (diffCache[sha] === undefined && folder && activeFile) {
-      const d = await useGitHistoryStore.getState().diff(folder, activeFile, sha);
-      setDiffCache((c) => ({ ...c, [sha]: d }));
-    }
-  }
-
-  async function onRestore(sha: string, shortSha: string) {
-    if (!folder || !activeFile) return;
-    if (!window.confirm(t('history.confirmRestore', { sha: shortSha }))) return;
-    const tabId = useTabsStore.getState().activeTab()?.id;
-    try {
-      await useGitHistoryStore.getState().rollback(folder, activeFile, sha);
-      const restored = await useGitHistoryStore.getState().fileAt(folder, activeFile, sha);
-      if (restored !== null && tabId) {
-        useTabsStore.getState().setContent(tabId, restored);
-        useTabsStore.getState().markSaved(tabId, activeFile);
-      }
-      useToastsStore.getState().success(t('history.restored', { sha: shortSha }));
-    } catch (e) {
-      useToastsStore.getState().error(`${t('history.commitFailed')}: ${e}`);
-    }
+  // 点击版本：在编辑器打开对比；再点当前对比版本则收起。
+  function onRowClick(c: CommitMeta) {
+    if (!activeFile) return;
+    const dv = useDiffViewStore.getState();
+    if (dv.sha === c.sha && dv.filePath === activeFile) dv.close();
+    else dv.open(activeFile, c);
   }
 
   function timeAgo(unix: number): string {
@@ -144,43 +122,13 @@ export function HistoryPanel({ onClose }: { onClose?: () => void }) {
           {commits.map((c) => (
             <li key={c.sha} className="history__item">
               <button
-                className={`history__row${expandedSha === c.sha ? ' history__row--open' : ''}`}
-                onClick={() => toggleRow(c.sha)}
+                className={`history__row${activeDiffSha === c.sha ? ' history__row--active' : ''}`}
+                onClick={() => onRowClick(c)}
               >
                 <span className="history__sha">{c.shortSha}</span>
                 <span className="history__time">{timeAgo(c.time)}</span>
                 <span className="history__msg-line">{c.message}</span>
               </button>
-              {expandedSha === c.sha && (
-                <div className="history__diff-wrap">
-                  <div className="history__diff-toolbar">
-                    <button className="history__restore" onClick={() => onRestore(c.sha, c.shortSha)}>
-                      {t('history.restore')}
-                    </button>
-                    <span className="history__author">{c.author}</span>
-                  </div>
-                  {diffCache[c.sha] === undefined ? (
-                    <div className="history__diff-loading">{t('history.loading')}</div>
-                  ) : !diffCache[c.sha] ? (
-                    <div className="history__diff-empty">{t('history.diffUnavailable')}</div>
-                  ) : (
-                    <pre className="history__diff">
-                      {diffCache[c.sha]!.hunks.map((hunk, hi) => (
-                        <Fragment key={hi}>
-                          <span className="history__hunk-hdr">
-                            @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
-                          </span>
-                          {hunk.lines.map((line, li) => (
-                            <span key={`${hi}-${li}`} className={`history__line history__line--${line.kind}`}>
-                              {(line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' ') + line.text}
-                            </span>
-                          ))}
-                        </Fragment>
-                      ))}
-                    </pre>
-                  )}
-                </div>
-              )}
             </li>
           ))}
         </ul>

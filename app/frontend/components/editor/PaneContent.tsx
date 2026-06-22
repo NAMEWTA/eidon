@@ -9,7 +9,10 @@
 import { useEffect, useRef } from 'react';
 import { Editor, type EditorHandle } from './Editor';
 import { Preview, type PreviewHandle } from './Preview';
+import { DiffView } from './DiffView';
 import { useSettingsStore } from '../../stores/settings';
+import { useDiffViewStore } from '../../stores/diffView';
+import { useWorkspaceStore } from '../../stores/workspace';
 import { useTilesStore } from '../../stores/tiles';
 import { openPath } from '../../hooks/useFiles';
 import type { Tab } from '../../types';
@@ -99,15 +102,20 @@ export function PaneContent({ paneId, tab, onCursor, onSelection }: PaneContentP
   const focusMode = useSettingsStore((s) => s.focusMode);
   const typewriterMode = useSettingsStore((s) => s.typewriterMode);
   const spellCheck = useSettingsStore((s) => s.spellCheck);
+  const diffFile = useDiffViewStore((s) => s.filePath);
+  const diffSha = useDiffViewStore((s) => s.sha);
+  const folder = useWorkspaceStore((s) => s.currentFolder);
   const editorRef = useRef<EditorHandle | null>(null);
   const previewRef = useRef<PreviewHandle | null>(null);
   const bindRef = useRef<(() => void) | null>(null);
 
   const tabKind = tab?.kind ?? 'text';
+  // 历史对比命中当前 tab（按文件路径匹配）→ 编辑器主区让位给 <DiffView>，盖过 editor/preview。
+  const showDiff = tabKind === 'text' && !!diffSha && !!folder && !!tab?.filePath && diffFile === tab.filePath;
   const showAsset = !!tab && tabKind !== 'text';
-  const showEditor = tabKind === 'text' && (tab?.language !== 'markdown' || viewMode !== 'preview');
+  const showEditor = !showDiff && tabKind === 'text' && (tab?.language !== 'markdown' || viewMode !== 'preview');
   // 预览列只在带预览的布局（split / preview）出现；edit 单栏编辑无预览（reading 由 App 层整屏渲染）。
-  const showPreview = tabKind === 'text' && tab?.language === 'markdown' && (viewMode === 'split' || viewMode === 'preview');
+  const showPreview = !showDiff && tabKind === 'text' && tab?.language === 'markdown' && (viewMode === 'split' || viewMode === 'preview');
 
   function isFocused() {
     return useTilesStore.getState().focusedPaneId === paneId;
@@ -321,6 +329,7 @@ export function PaneContent({ paneId, tab, onCursor, onSelection }: PaneContentP
   return (
     <div className="pane-content">
       {showAsset && tab && <AssetPane tab={tab} />}
+      {showDiff && tab && folder && <DiffView tab={tab} folder={folder} />}
       {showEditor && tab && (
         <div className="pane pane--editor">
           <Editor

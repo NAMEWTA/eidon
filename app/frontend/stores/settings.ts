@@ -33,6 +33,10 @@ interface SettingsActions {
   setViewMode(mode: ViewMode): void;
   setEditorRender(render: EditorRender): void;
   toggleEditorRender(): void;
+  setDiffLayout(layout: 'split' | 'stacked'): void;
+  toggleDiffLayout(): void;
+  setDiffCollapseUnchanged(on: boolean): void;
+  toggleDiffCollapseUnchanged(): void;
   cycleViewMode(): void;
   toggleReadingMode(): void;
   exitReadingMode(): void;
@@ -129,6 +133,22 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
   },
   toggleEditorRender() {
     set({ editorRender: get().editorRender === 'live' ? 'source' : 'live' });
+    get().persist();
+  },
+  setDiffLayout(layout) {
+    set({ diffLayout: layout });
+    get().persist();
+  },
+  toggleDiffLayout() {
+    set({ diffLayout: get().diffLayout === 'split' ? 'stacked' : 'split' });
+    get().persist();
+  },
+  setDiffCollapseUnchanged(on) {
+    set({ diffCollapseUnchanged: on });
+    get().persist();
+  },
+  toggleDiffCollapseUnchanged() {
+    set({ diffCollapseUnchanged: !get().diffCollapseUnchanged });
     get().persist();
   },
   cycleViewMode() {

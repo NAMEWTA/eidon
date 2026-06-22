@@ -408,6 +408,19 @@ export const zh: I18n = {
     loading: '加载中…',
     diffUnavailable: '此版本无差异内容。',
   },
+  diff: {
+    comparing: '对比版本 {sha}',
+    stacked: '上下',
+    split: '并排',
+    showAll: '全部',
+    onlyChanges: '仅修改',
+    close: '关闭对比',
+    historyLabel: '历史版本 · {sha}',
+    currentLabel: '当前（可编辑）',
+    unifiedHint: '上方：历史版本 {sha} ｜ 下方：当前（可编辑）',
+    // @codemirror/merge 折叠占位（$ = 行数，由 CodeMirror phrase 替换，勿改成 {} ）
+    unchangedLines: '$ 行未改动',
+  },
   statusBar: {
     selection: '已选: {words} 词 / {chars} 字符',
     selectionTooltip: '当前选中文本的字数和字符数',
