@@ -16,6 +16,7 @@ dist-ssr
 *.dmg
 *.app
 *.icns
+!app/resources/icons/*.icns
 
 # Build artifacts
 app/dist/

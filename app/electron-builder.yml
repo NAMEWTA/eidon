@@ -32,7 +32,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   icon: resources/icons/icon.icns
-  notarize: true
+  notarize: false
   target:
     - target: dmg
       arch:
@@ -57,6 +57,7 @@ nsis:
 linux:
   category: Office
   icon: resources/icons
+  maintainer: xiangdong li <412751231@qq.com>
   target:
     - deb
     - rpm

@@ -2,6 +2,12 @@
   "name": "eidon",
   "private": true,
   "version": "0.0.6",
+  "description": "EIDON — AI-native multi-agent knowledge workspace",
+  "homepage": "https://github.com/NAMEWTA/eidon",
+  "author": {
+    "name": "xiangdong li",
+    "email": "412751231@qq.com"
+  },
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
