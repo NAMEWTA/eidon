@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { aiBridge } from '@bridge/ipc';
-import type { SkillInfo } from '@shared/models';
+import type { ModelRef, SkillInfo } from '@shared/models';
 import { useI18n } from '../../i18n';
 import { useAiStore } from '../../stores/ai';
 import { useWorkspaceStore } from '../../stores/workspace';
@@ -165,6 +165,11 @@ export function AiPanel() {
     else store.setActiveAgent(null);
   }
 
+  const modelKey = (m: ModelRef | null): string => (m ? `${m.provider}/${m.id}` : '');
+  // 当前会话模型：用户选 > 会话态 > 该 Agent 默认 > 全局默认。
+  const activeAgent = store.agents.find((a) => a.id === store.activeAgentId) ?? null;
+  const displayModel = store.selectedModel ?? store.model ?? activeAgent?.model ?? store.defaultModel;
+
   return (
     <div className="ai-panel">
       <div className="ai-panel__header">
@@ -190,8 +195,25 @@ export function AiPanel() {
             </optgroup>
           )}
         </select>
+        {!store.activeChannelId && (
+          <select
+            className="ai-panel__model"
+            value={modelKey(displayModel)}
+            onChange={(e) => {
+              const v = e.target.value;
+              const i = v.indexOf('/');
+              store.selectModel(i > 0 ? { provider: v.slice(0, i), id: v.slice(i + 1) } : null);
+            }}
+            title="切换模型（默认=该助手的模型）"
+          >
+            <option value="">（默认模型）</option>
+            {store.models.map((m) => (
+              <option key={modelKey(m)} value={modelKey(m)}>{m.name}</option>
+            ))}
+          </select>
+        )}
         <button className="ai-panel__new" onClick={() => store.newChat()} title={t('ai.newChat')}>
-          ＋ {t('ai.newChat')}
+          ＋
         </button>
       </div>
 

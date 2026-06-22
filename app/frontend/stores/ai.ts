@@ -40,6 +40,8 @@ interface AiState {
   sessionId: string | null;
   isStreaming: boolean;
   model: ModelRef | null;
+  /** 用户在对话面板手动选择的模型（null = 用当前 Agent/全局默认）；切 Agent 时重置。 */
+  selectedModel: ModelRef | null;
   messages: ChatMessage[];
   error: string | null;
   providers: ProviderInfo[];
@@ -70,6 +72,8 @@ interface AiActions {
   setProviderKey(provider: string, apiKey: string): Promise<void>;
   setDefaultModel(model: ModelRef | null): Promise<void>;
   switchModel(model: ModelRef): Promise<void>;
+  /** 对话面板选择模型：记住选择，有会话则即时切换。 */
+  selectModel(model: ModelRef | null): void;
   /** 内部：消费一条流事件。 */
   _ingest(e: AiStreamEvent): void;
 }
@@ -117,6 +121,7 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
   sessionId: null,
   isStreaming: false,
   model: null,
+  selectedModel: null,
   messages: [],
   error: null,
   providers: [],
@@ -182,6 +187,7 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
       activeAgentId: agentId,
       activeChannelId: null,
       sessionId: null,
+      selectedModel: null,
       messages: [],
       isStreaming: false,
       error: null,
@@ -195,6 +201,7 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
     set({
       activeChannelId: channelId,
       sessionId: null,
+      selectedModel: null,
       messages: [],
       isStreaming: false,
       error: null,
@@ -208,6 +215,12 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
       workspace,
     });
     set({ sessionId, model: state.model, isStreaming: state.isStreaming });
+    // 用户在面板里手动选过模型 → 在新会话上即时应用（覆盖 Agent 默认）。
+    const sel = get().selectedModel;
+    if (sel && (sel.provider !== state.model?.provider || sel.id !== state.model?.id)) {
+      await aiBridge.setModel(sessionId, sel);
+      set({ model: sel });
+    }
   },
 
   async send(text: string, workspace?: string) {
@@ -275,6 +288,12 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
     const sessionId = get().sessionId;
     if (sessionId) await aiBridge.setModel(sessionId, model);
     set({ model });
+  },
+
+  selectModel(model: ModelRef | null) {
+    set({ selectedModel: model, model });
+    const sessionId = get().sessionId;
+    if (sessionId && model) void aiBridge.setModel(sessionId, model);
   },
 
   _ingest(e: AiStreamEvent) {

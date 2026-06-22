@@ -27,7 +27,8 @@ extraResources:
 mac:
   category: public.app-category.productivity
   minimumSystemVersion: "10.15"
-  hardenedRuntime: true
+  identity: null
+  hardenedRuntime: false
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist

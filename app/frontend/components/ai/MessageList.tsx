@@ -1,13 +1,20 @@
 /**
- * MessageList —— AI 对话消息流渲染。
+ * MessageList —— AI 对话消息流渲染（参考 HanaAgent chat，复用 EIDON 既有 markdown 渲染）。
  *
- * 每条消息按 part 类型渲染：text（正文）/ thinking（可折叠思考块）/ tool（工具调用 + 输出）。
- * 流式期间增量更新；自动滚动到底部。
+ * 每条消息按 part 类型渲染：text（assistant 走 markdown / user 走纯文本气泡）/
+ * thinking（可折叠思考块）/ tool（工具调用 + 输出）。流式期间增量更新；自动滚动到底部。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useI18n } from '../../i18n';
+import { renderMarkdown } from '../../lib/markdown';
 import type { ChatMessage, ChatPart } from '../../stores/ai';
+
+/** assistant 文本 → 复用 EIDON 的 markdown-it 渲染（代码高亮/列表/表格/数学等）。 */
+function MarkdownBlock({ text }: { text: string }) {
+  const html = useMemo(() => renderMarkdown(text), [text]);
+  return <div className="ai-md" dangerouslySetInnerHTML={{ __html: html }} />;
+}
 
 function ThinkingBlock({ text }: { text: string }) {
   const { t } = useI18n();
@@ -36,8 +43,12 @@ function ToolBlock({ part }: { part: Extract<ChatPart, { type: 'tool' }> }) {
   );
 }
 
-function Part({ part }: { part: ChatPart }) {
-  if (part.type === 'text') return <div className="ai-msg__text">{part.text}</div>;
+function Part({ part, role }: { part: ChatPart; role: ChatMessage['role'] }) {
+  if (part.type === 'text') {
+    return role === 'assistant'
+      ? <MarkdownBlock text={part.text} />
+      : <div className="ai-msg__text">{part.text}</div>;
+  }
   if (part.type === 'thinking') return <ThinkingBlock text={part.text} />;
   return <ToolBlock part={part} />;
 }
@@ -61,7 +72,7 @@ export function MessageList({ messages, streaming }: { messages: ChatMessage[]; 
             {m.parts.length === 0 && streaming && m.role === 'assistant' ? (
               <div className="ai-msg__pending">{t('ai.streaming')}</div>
             ) : (
-              m.parts.map((p, i) => <Part key={i} part={p} />)
+              m.parts.map((p, i) => <Part key={i} part={p} role={m.role} />)
             )}
           </div>
         </div>

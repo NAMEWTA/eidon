@@ -19,7 +19,6 @@ import type {
   ToolInfo,
   UpdateAgentPatch,
 } from '@shared/models';
-import { AgentCron } from './AgentCron';
 import { SettingsSection, SettingsRow, Toggle, Select, TextInput, Textarea } from '../settings/kit';
 
 const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
@@ -176,7 +175,7 @@ export function AgentTab() {
                 {cfg.avatar ? <img src={cfg.avatar} alt="" /> : <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>头像</span>}
               </button>
               <div style={{ flex: 1 }}>
-                <div className="pv-cred-row"><span className="pv-cred-label">名称</span><div className="pv-cred-field"><TextInput value={name} onChange={(e) => setName(e.target.value)} /></div></div>
+                <div className="pv-cred-row"><span className="pv-cred-label">名称</span><div className="pv-cred-field"><TextInput value={name} onChange={(e) => setName(e.target.value)} onBlur={() => { const n = name.trim(); if (n && n !== cfg.name) void patch({ name: n }); }} /></div></div>
                 <div className="pv-cred-row"><span className="pv-cred-label">默认模型</span><div className="pv-cred-field">
                   <Select value={modelKey(cfg.model)} onChange={(e) => void patch({ model: parseModel(e.target.value) })}>
                     <option value="">（继承全局默认）</option>
@@ -277,11 +276,6 @@ export function AgentTab() {
             <SettingsRow label="可被其他 Agent 发现" hint="进入团队名册，可被 @agent 协作。" control={<Toggle on={cfg.visibility === 'public'} onChange={(on) => void patch({ visibility: (on ? 'public' : 'private') as AgentVisibility })} />} />
             <SettingsRow label="允许被激活为子 Agent" hint="仅在「可被发现」开启时生效。" control={<Toggle on={cfg.activatableByAgents} onChange={(on) => void patch({ activatableByAgents: on })} />} />
             <SettingsRow label="参与群聊频道" control={<Toggle on={cfg.channelsEnabled} onChange={(on) => void patch({ channelsEnabled: on })} />} />
-          </SettingsSection>
-
-          {/* 定时任务 */}
-          <SettingsSection title="定时任务">
-            <AgentCron agentId={cfg.id} />
           </SettingsSection>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
