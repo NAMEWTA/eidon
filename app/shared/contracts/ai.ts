@@ -229,12 +229,12 @@ export const ToolsFileSchema = z.object({
 export type ToolsFile = z.infer<typeof ToolsFileSchema>;
 
 /* ─────────────────────────────────────────────────────────────────────────
- * 多平台桥接（P4）：把某 Agent 接到外部 IM 平台（本期飞书 + 微信官方 iLink）。
- * 凭证不在此处——飞书 appId/appSecret、微信 botToken/baseUrl 落 `auth.json` 的 `bridge` 段。
+ * 多平台桥接（P4）：把某 Agent 接到外部 IM 平台（飞书 + 微信官方 iLink + Telegram）。
+ * 凭证不在此处——飞书 appId/appSecret、微信 botToken/baseUrl、Telegram token 落 `auth.json` 的 `bridge` 段。
  * ──────────────────────────────────────────────────────────────────────── */
 
-/** 桥接平台标识（本期：飞书 + 微信官方 iLink；后续加平台只扩此枚举 + 适配器）。 */
-export const BridgePlatformSchema = z.enum(["feishu", "wechat"]);
+/** 桥接平台标识（飞书 + 微信官方 iLink + Telegram；后续加平台只扩此枚举 + 适配器）。 */
+export const BridgePlatformSchema = z.enum(["feishu", "wechat", "telegram"]);
 export type BridgePlatform = z.infer<typeof BridgePlatformSchema>;
 
 /** 单条平台绑定：某平台 ↔ 某 Agent。`agentId=null` 表示未绑定（该平台不可启用）。 */

@@ -16,9 +16,19 @@ export {
 export {
   AiSession,
   projectEvent,
+  projectHistory,
   type CreateSessionParams,
   type PromptImage,
 } from "./session";
+
+export {
+  SessionGate,
+  gateTool,
+  classifyToolPermission,
+  INFORMATION_TOOLS,
+  SIDE_EFFECT_TOOLS,
+  type ToolGateDecision,
+} from "./tool-gate";
 
 export {
   createSubagentTool,
@@ -29,5 +39,7 @@ export {
   type NotifyDeps,
   type KnowledgeDeps,
 } from "./tools";
+
+export { resolveToolNames } from "./tool-policy";
 
 export { listSkills } from "./skills";

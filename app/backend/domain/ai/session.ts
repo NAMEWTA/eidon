@@ -13,6 +13,7 @@ import {
   SessionManager,
   type AgentSession,
   type AgentSessionEvent,
+  type SessionEntry,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -20,11 +21,15 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import type {
   AiSessionState,
   AiStreamEvent,
+  ChatMessageWire,
+  ChatPartWire,
   ModelRef,
+  SessionPermissionMode,
   ThinkingLevel,
 } from "@shared/models";
 
 import { buildRegistry, resolveModel } from "./provider";
+import { SessionGate } from "./tool-gate";
 
 /** pi 的 thinkingLevel 无 `off`；EIDON 的 `off` 映射为不传（用 SDK 默认/模型不支持时被忽略）。 */
 type PiThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -60,16 +65,117 @@ export function projectEvent(
     case "message_end":
       return [{ kind: "message_end", sessionId }];
     case "tool_execution_start":
-      return [{ kind: "tool_start", sessionId, toolCallId: ev.toolCallId, toolName: ev.toolName }];
+      // pi 已在此事件带工具入参 args；透传供前端展开查看（修复「工具无法展开看内容」）。
+      return [{ kind: "tool_start", sessionId, toolCallId: ev.toolCallId, toolName: ev.toolName, args: ev.args }];
     case "tool_execution_update":
       return [{ kind: "tool_update", sessionId, toolCallId: ev.toolCallId, chunk: stringifyChunk(ev.partialResult) }];
     case "tool_execution_end":
-      return [{ kind: "tool_end", sessionId, toolCallId: ev.toolCallId, isError: ev.isError }];
+      // pi 已在此事件带最终 result；截断后透传供前端展开查看。
+      return [{ kind: "tool_end", sessionId, toolCallId: ev.toolCallId, isError: ev.isError, result: stringifyChunk(ev.result) }];
     case "agent_end":
       return [{ kind: "done", sessionId }];
     default:
       return [];
   }
+}
+
+/** pi 消息内容部件的最小结构形状（避免依赖 pi-agent-core 私有类型导出）。 */
+interface PiTextContent {
+  type: "text";
+  text: string;
+}
+interface PiThinkingContent {
+  type: "thinking";
+  thinking: string;
+}
+interface PiToolCall {
+  type: "toolCall";
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+interface PiUserMessage {
+  role: "user";
+  content: string | Array<{ type: string; text?: string }>;
+}
+interface PiAssistantMessage {
+  role: "assistant";
+  content: Array<PiTextContent | PiThinkingContent | PiToolCall>;
+}
+interface PiToolResultMessage {
+  role: "toolResult";
+  toolCallId: string;
+  toolName: string;
+  content: Array<{ type: string; text?: string }>;
+  isError: boolean;
+}
+type PiMessage = PiUserMessage | PiAssistantMessage | PiToolResultMessage;
+
+/** 把（字符串或 content 部件数组）抽成纯文本。 */
+function contentToText(content: string | Array<{ type: string; text?: string }>): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((c) => c.type === "text" && typeof c.text === "string")
+    .map((c) => c.text)
+    .join("");
+}
+
+/**
+ * 把持久化会话条目序列投影为可渲染历史消息（供 `ai:loadSession` 回放，**纯函数**，单测友好）。
+ *  - user      → 文本气泡。
+ *  - assistant → text / thinking / tool 三类 part（tool 带 args）。
+ *  - toolResult→ 回填最近 assistant 里同 toolCallId 的 tool part 的 result / isError。
+ */
+export function projectHistory(entries: readonly SessionEntry[]): ChatMessageWire[] {
+  const messages: ChatMessageWire[] = [];
+  let seq = 0;
+  // toolCallId → 已 push 的 tool part 引用（toolResult 到达时原地回填）。
+  const toolParts = new Map<string, Extract<ChatPartWire, { type: "tool" }>>();
+
+  for (const entry of entries) {
+    if (entry.type !== "message") continue;
+    const msg = entry.message as unknown as PiMessage;
+
+    if (msg.role === "user") {
+      const text = contentToText(msg.content).trim();
+      if (text) messages.push({ id: `h${seq++}`, role: "user", parts: [{ type: "text", text }] });
+      continue;
+    }
+
+    if (msg.role === "assistant") {
+      const parts: ChatPartWire[] = [];
+      for (const part of msg.content) {
+        if (part.type === "text" && part.text) {
+          parts.push({ type: "text", text: part.text });
+        } else if (part.type === "thinking" && part.thinking) {
+          parts.push({ type: "thinking", text: part.thinking });
+        } else if (part.type === "toolCall") {
+          const toolPart: Extract<ChatPartWire, { type: "tool" }> = {
+            type: "tool",
+            toolCallId: part.id,
+            toolName: part.name,
+            args: part.arguments,
+            result: "",
+            isError: false,
+            done: true,
+          };
+          parts.push(toolPart);
+          toolParts.set(part.id, toolPart);
+        }
+      }
+      if (parts.length) messages.push({ id: `h${seq++}`, role: "assistant", parts });
+      continue;
+    }
+
+    // toolResult：回填对应 tool part。
+    const toolPart = toolParts.get(msg.toolCallId);
+    if (toolPart) {
+      toolPart.result = contentToText(msg.content);
+      toolPart.isError = msg.isError;
+    }
+  }
+
+  return messages;
 }
 
 export interface CreateSessionParams {
@@ -94,10 +200,12 @@ export interface CreateSessionParams {
    * 缺省/打开失败则新建。
    */
   sessionFile?: string;
-  /** 内置工具白名单（P0：read/grep/find/ls）。 */
+  /** 内置工具集（默认全部内置工具，service 侧已按全局/per-agent 禁用过滤）。 */
   toolNames: string[];
   /** EIDON 专属自定义工具（P1+）。 */
   customTools?: ToolDefinition[];
+  /** 工具闸门：持有权限档 + ask 批准挂起表（service 注入，已绑定 emit）。 */
+  gate: SessionGate;
 }
 
 /** 一张随消息附带的图片（base64 + MIME）；由 service 从桥接附件下载解密后构造。 */
@@ -116,6 +224,8 @@ export class AiSession {
   private readonly sessionManager: SessionManager;
   /** create 时注入：setModel 需用同一组凭证重建 registry。 */
   private readonly apiKeys: Record<string, string>;
+  /** 工具闸门：权限档真相源 + ask 批准挂起表（被门控工具与本会话共享同一实例）。 */
+  private readonly gate: SessionGate;
   private readonly listeners = new Set<(e: AiStreamEvent) => void>();
   private unsubscribe: (() => void) | null = null;
 
@@ -125,12 +235,14 @@ export class AiSession {
     session: AgentSession,
     sessionManager: SessionManager,
     apiKeys: Record<string, string>,
+    gate: SessionGate,
   ) {
     this.id = id;
     this.agentId = agentId;
     this.session = session;
     this.sessionManager = sessionManager;
     this.apiKeys = apiKeys;
+    this.gate = gate;
     this.unsubscribe = session.subscribe((ev) => {
       for (const e of projectEvent(this.id, ev)) this.dispatch(e);
     });
@@ -164,7 +276,7 @@ export class AiSession {
       customTools: params.customTools,
     });
 
-    return new AiSession(params.sessionId, params.agentId, session, sessionManager, params.apiKeys);
+    return new AiSession(params.sessionId, params.agentId, session, sessionManager, params.apiKeys, params.gate);
   }
 
   /** 既有会话文件存在则 `open` 续接，否则（或打开失败）`create` 新建。 */
@@ -228,7 +340,18 @@ export class AiSession {
       thinkingLevel: this.session.thinkingLevel as ThinkingLevel,
       isStreaming: this.session.isStreaming,
       messageCount: this.session.agent.state.messages.length,
+      permissionMode: this.gate.mode,
     };
+  }
+
+  /** 运行时切换工具权限档（立即作用于后续工具调用）。 */
+  setPermissionMode(mode: SessionPermissionMode): void {
+    this.gate.mode = mode;
+  }
+
+  /** ask 档下用户对某次工具调用的批准/拒绝（解析挂起的闸门 Promise）。 */
+  approveTool(toolCallId: string, approved: boolean): void {
+    this.gate.approve(toolCallId, approved);
   }
 
   subscribe(listener: (e: AiStreamEvent) => void): () => void {
@@ -237,6 +360,8 @@ export class AiSession {
   }
 
   dispose(): void {
+    // 先放掉所有挂起批准（当拒绝），避免被门控工具永久挂起。
+    this.gate.rejectAll();
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.listeners.clear();

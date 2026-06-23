@@ -15,6 +15,9 @@ import type {
   AgentSummary,
   AggregatedTodo,
   AiSessionState,
+  AiSessionSummary,
+  ChatMessageWire,
+  SessionPermissionMode,
   AppBuildInfo,
   BacklinkRef,
   BridgeBinding,
@@ -334,6 +337,26 @@ export interface IpcContract {
     req: { sessionId: string };
     res: AiSessionState | null;
   };
+  /** 列出某 Agent 的历史会话（按更新时间倒序），供标题栏历史浮层。 */
+  "ai:listSessions": {
+    req: { agentId?: string };
+    res: AiSessionSummary[];
+  };
+  /** 载入一个历史会话续聊：建活会话 + 回放历史消息视图。 */
+  "ai:loadSession": {
+    req: { agentId?: string; sessionFile: string };
+    res: { sessionId: string; state: AiSessionState; messages: ChatMessageWire[] };
+  };
+  /** 运行时切换会话权限档（工具门控立即生效）。 */
+  "ai:setPermissionMode": {
+    req: { sessionId: string; mode: SessionPermissionMode };
+    res: void;
+  };
+  /** ask 档下用户对某次工具调用的批准/拒绝。 */
+  "ai:approveTool": {
+    req: { sessionId: string; toolCallId: string; approved: boolean };
+    res: void;
+  };
 
   // ── agents（多 Agent CRUD；全局 ~/.eidon/agents）─────────────────────────
   "agents:list": { req: NoReq; res: AgentSummary[] };
@@ -504,6 +527,10 @@ const CHANNEL_PRESENCE: Record<Channel, true> = {
   "ai:setModel": true,
   "ai:disposeSession": true,
   "ai:sessionState": true,
+  "ai:listSessions": true,
+  "ai:loadSession": true,
+  "ai:setPermissionMode": true,
+  "ai:approveTool": true,
   "agents:list": true,
   "agents:get": true,
   "agents:create": true,

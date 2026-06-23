@@ -106,6 +106,7 @@ import {
   listAvailableModels,
   listProviderNames,
   listSkills as discoverSkills,
+  resolveToolNames,
   type PromptImage,
 } from "../domain/ai";
 import { searchInDir } from "../capabilities/knowledge/search";
@@ -124,14 +125,14 @@ const BUILTIN_TOOLS: { name: string; description: string }[] = [
   { name: "write", description: "写入文件" },
 ];
 
-/** P0 默认启用的内置只读工具（让 Agent 能读/检索工作区文件）。 */
-const DEFAULT_TOOL_NAMES = ["read", "grep", "find", "ls"];
+/** 生效工具基准集 = 全部内置工具名（per-agent / 全局可在此基础上再禁用，见 effectiveToolNames）。 */
+const ALL_TOOL_NAMES = BUILTIN_TOOLS.map((t) => t.name);
 
 /** 默认助手人格（首次自动建默认 Agent 时写入 identity.md）。 */
 const DEFAULT_IDENTITY = `你是 {{agentName}}，EIDON 知识库中的本地 AI 助手。
 
 - 用简洁、准确、可执行的中文回答。
-- 需要了解用户的笔记/文件时，使用 read / grep / find / ls 工具在当前工作区中查找，不要臆测内容。
+- 需要了解用户的笔记/文件时，用 read / grep / find / ls 在当前工作区查找，不要臆测内容；需要修改文件用 edit / write，需要执行命令用 bash。
 - 涉及不可逆或对外的操作前，先与用户确认。
 `;
 
@@ -703,40 +704,57 @@ class AiService {
     for (const platform of [...this.bridgeAdapters.keys()]) await this.stopBridge(platform);
   }
 
-  /** 微信扫码登录：拉 QR → 轮询状态（服务器长轮询 hold ~35s）→ confirmed 存 botToken。 */
+  /**
+   * 微信扫码登录：拉 QR → 轮询状态（服务器长轮询 hold ~35s）→ confirmed 存 botToken。
+   *
+   * iLink 二维码 token 有效期为分钟级；扫到过期码时微信 App 会报「网络错误」。故按轮自动
+   * 刷新出新码（服务器返回 expired，或单轮轮询额度用尽即主动换码），确保用户始终扫到「活」码。
+   */
   async startWechatLogin(): Promise<void> {
     this.wechatLoginCancelled = false;
-    const qr = await getWechatQrcode();
-    if (!qr.ok || !qr.qrcodeId) {
-      emitEvent("eidon:bridge-wechat-qr", { status: "error", error: qr.error ?? "获取二维码失败" });
-      return;
-    }
-    emitEvent("eidon:bridge-wechat-qr", { status: "waiting", qrDataUrl: qr.qrcodeDataUrl });
-    for (let i = 0; i < 20 && !this.wechatLoginCancelled; i++) {
-      const st = await pollWechatQrcodeStatus(qr.qrcodeId);
+    const MAX_ROUNDS = 5;
+    const POLLS_PER_ROUND = 4;
+    for (let round = 0; round < MAX_ROUNDS && !this.wechatLoginCancelled; round++) {
+      const qr = await getWechatQrcode();
       if (this.wechatLoginCancelled) return;
-      if (st.status === "scanned") {
-        emitEvent("eidon:bridge-wechat-qr", { status: "scanned", qrDataUrl: qr.qrcodeDataUrl });
-        continue;
-      }
-      if (st.status === "confirmed" && st.botToken) {
-        await setBridgeCreds("wechat", {
-          botToken: st.botToken,
-          ...(st.baseUrl ? { baseUrl: st.baseUrl } : {}),
-        });
-        emitEvent("eidon:bridge-wechat-qr", { status: "confirmed" });
-        const binding = (await readBindings()).bindings.find((b) => b.platform === "wechat");
-        if (binding?.enabled && binding.agentId) await this.startBridge("wechat");
-        this.emitBridgeStatus("wechat");
+      if (!qr.ok || !qr.qrcodeId) {
+        emitEvent("eidon:bridge-wechat-qr", { status: "error", error: qr.error ?? "获取二维码失败" });
         return;
       }
-      if (st.status === "expired" || st.status === "error") {
-        emitEvent("eidon:bridge-wechat-qr", { status: st.status, error: st.error });
-        return;
+      emitEvent("eidon:bridge-wechat-qr", { status: "waiting", qrDataUrl: qr.qrcodeDataUrl });
+
+      let refreshQr = false;
+      for (let i = 0; i < POLLS_PER_ROUND && !this.wechatLoginCancelled && !refreshQr; i++) {
+        const st = await pollWechatQrcodeStatus(qr.qrcodeId);
+        if (this.wechatLoginCancelled) return;
+        switch (st.status) {
+          case "scanned":
+            emitEvent("eidon:bridge-wechat-qr", { status: "scanned", qrDataUrl: qr.qrcodeDataUrl });
+            break;
+          case "confirmed": {
+            if (!st.botToken) break;
+            await setBridgeCreds("wechat", {
+              botToken: st.botToken,
+              ...(st.baseUrl ? { baseUrl: st.baseUrl } : {}),
+            });
+            emitEvent("eidon:bridge-wechat-qr", { status: "confirmed" });
+            const binding = (await readBindings()).bindings.find((b) => b.platform === "wechat");
+            if (binding?.enabled && binding.agentId) await this.startBridge("wechat");
+            this.emitBridgeStatus("wechat");
+            return;
+          }
+          case "expired":
+            refreshQr = true; // 跳出内层 → 外层自动出新码
+            break;
+          case "error":
+            emitEvent("eidon:bridge-wechat-qr", { status: "error", error: st.error });
+            return;
+          default:
+            break; // waiting → 继续轮询当前码
+        }
       }
-      // waiting → 继续轮询
     }
-    // 轮询额度用尽仍未确认：明确告知二维码过期，避免 UI 静默卡在「等待扫码」。
+    // 多轮仍未确认：明确告知过期，避免 UI 静默卡在「等待扫码」。
     if (!this.wechatLoginCancelled) {
       emitEvent("eidon:bridge-wechat-qr", { status: "expired" });
     }
@@ -1017,11 +1035,9 @@ class AiService {
     emitEvent("eidon:agent-activity", { ...activity, at: new Date().toISOString() });
   }
 
-  /** Agent 生效工具名 = (per-agent 白名单 或 默认集) − 全局禁用 − per-agent 黑名单。 */
+  /** Agent 生效工具名 = (per-agent 白名单 或 全集) − 全局禁用 − per-agent 黑名单（策略见 domain/tool-policy）。 */
   private effectiveToolNames(config: AgentConfig, globalDisabled: string[]): string[] {
-    const base = config.tools.enabled.length ? config.tools.enabled : DEFAULT_TOOL_NAMES;
-    const disabled = new Set([...globalDisabled, ...config.tools.disabled]);
-    return base.filter((name) => !disabled.has(name));
+    return resolveToolNames(ALL_TOOL_NAMES, config.tools.enabled, [...globalDisabled, ...config.tools.disabled]);
   }
 
   /** 团队名册：可被发现且可激活的「其他」Agent（注入顶层会话系统提示）。 */

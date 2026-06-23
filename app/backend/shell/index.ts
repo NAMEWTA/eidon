@@ -112,6 +112,12 @@ function applyCsp(): void {
 // 单实例锁（避免多窗口；二次启动聚焦已有窗口）。
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
+  // 已有一个 EIDON 在运行（常见：托盘常驻的打包版 /Applications/EIDON.app 还活着）。
+  // 显式打印原因，避免「pnpm dev 启动后秒退、终端无提示」的困惑（关窗只隐藏到托盘，不释放锁）。
+  console.warn(
+    "[EIDON] 另一个 EIDON 实例已在运行（多为托盘常驻的打包版）。本次启动已退出——" +
+      "请先退出已有实例（托盘图标→退出，或 pkill -f /Applications/EIDON.app）后重试。",
+  );
   app.quit();
 } else {
   app.on("second-instance", () => {

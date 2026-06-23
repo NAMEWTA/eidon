@@ -4,16 +4,18 @@
 import type { BridgePlatform } from "@shared/contracts";
 
 import { createFeishuAdapter } from "./feishu-adapter";
+import { createTelegramAdapter } from "./telegram-adapter";
 import { createWechatAdapter } from "./wechat-adapter";
 import type { BridgeAdapter, BridgeAdapterDeps } from "./types";
 
 const FACTORIES: Record<BridgePlatform, (deps: BridgeAdapterDeps) => BridgeAdapter> = {
   feishu: createFeishuAdapter,
   wechat: createWechatAdapter,
+  telegram: createTelegramAdapter,
 };
 
-/** 本期支持的平台（飞书 + 微信官方 iLink）。 */
-export const BRIDGE_PLATFORMS: BridgePlatform[] = ["feishu", "wechat"];
+/** 本期支持的平台（飞书 + 微信官方 iLink + Telegram）。 */
+export const BRIDGE_PLATFORMS: BridgePlatform[] = ["feishu", "wechat", "telegram"];
 
 /** 按平台构造适配器。 */
 export function createAdapter(platform: BridgePlatform, deps: BridgeAdapterDeps): BridgeAdapter {

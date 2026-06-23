@@ -210,6 +210,15 @@ export type AgentActivity = {
   at: string;
 };
 
+/**
+ * 会话权限档（工具门控的真相源；运行时可切换，见 backend/domain/ai/tool-gate）。
+ *  - `operate`   完整权限：所有工具直接执行。
+ *  - `auto`      自动审核：副作用工具自动执行，但工具卡片显式呈现（默认档）。
+ *  - `ask`       操作前询问：副作用工具执行前暂停、等用户在对话内批准。
+ *  - `read_only` 只读模式：拒绝一切副作用工具，并把原因回灌给模型。
+ */
+export type SessionPermissionMode = "operate" | "auto" | "ask" | "read_only";
+
 /** 会话状态快照（经 `eidon:ai-session` 推送给渲染层）。 */
 export type AiSessionState = {
   sessionId: string;
@@ -218,6 +227,47 @@ export type AiSessionState = {
   thinkingLevel: ThinkingLevel;
   isStreaming: boolean;
   messageCount: number;
+  /** 当前会话的工具权限档。 */
+  permissionMode: SessionPermissionMode;
+};
+
+/**
+ * 历史会话摘要（`ai:listSessions` 返回；投影自 pi 的 `SessionInfo`）。
+ * 供「标题栏历史浮层」列出可续聊的会话。
+ */
+export type AiSessionSummary = {
+  /** 会话持久化文件绝对路径（续聊时回传给 `ai:loadSession`）。 */
+  sessionFile: string;
+  id: string;
+  /** 展示标题：用户命名 `name` 优先，否则取首条消息截断。 */
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+};
+
+/**
+ * 历史消息 wire 形状（`ai:loadSession` 返回，供渲染层重建对话视图）。
+ * 与 store 的 ChatMessage/ChatPart 同形（store 的 tool part 额外带运行期 `approval` 字段）。
+ */
+export type ChatPartWire =
+  | { type: "text"; text: string }
+  | { type: "thinking"; text: string }
+  | {
+      type: "tool";
+      toolCallId: string;
+      toolName: string;
+      args?: unknown;
+      result: string;
+      isError: boolean;
+      done: boolean;
+    };
+
+export type ChatMessageWire = {
+  id: string;
+  role: "user" | "assistant";
+  parts: ChatPartWire[];
+  agentName?: string;
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -263,9 +313,13 @@ export type AiStreamEvent =
   | { kind: "message_start"; sessionId: string; agentName?: string }
   | { kind: "text_delta"; sessionId: string; delta: string }
   | { kind: "thinking_delta"; sessionId: string; delta: string }
-  | { kind: "tool_start"; sessionId: string; toolCallId: string; toolName: string }
+  // tool_start 携带工具入参 args（pi 的 tool_execution_start 已带，供前端展开查看）。
+  | { kind: "tool_start"; sessionId: string; toolCallId: string; toolName: string; args?: unknown }
   | { kind: "tool_update"; sessionId: string; toolCallId: string; chunk: string }
-  | { kind: "tool_end"; sessionId: string; toolCallId: string; isError: boolean }
+  // tool_end 携带最终结果 result（pi 的 tool_execution_end 已带，截断后透传）。
+  | { kind: "tool_end"; sessionId: string; toolCallId: string; isError: boolean; result?: string }
+  // tool_approval：ask 档下副作用工具执行前请求用户批准（前端在工具卡片内出批准/拒绝）。
+  | { kind: "tool_approval"; sessionId: string; toolCallId: string; toolName: string; args?: unknown }
   | { kind: "message_end"; sessionId: string }
   | { kind: "done"; sessionId: string }
   | { kind: "error"; sessionId: string; message: string };

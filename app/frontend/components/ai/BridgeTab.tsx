@@ -43,6 +43,7 @@ export function BridgeTab() {
   const [statuses, setStatuses] = useState<BridgeStatus[]>([]);
   const [fsAppId, setFsAppId] = useState('');
   const [fsAppSecret, setFsAppSecret] = useState('');
+  const [tgToken, setTgToken] = useState('');
   const [qr, setQr] = useState<WechatLoginState | null>(null);
 
   const get = (p: BridgePlatform) => statuses.find((s) => s.platform === p);
@@ -101,6 +102,7 @@ export function BridgeTab() {
 
   const fs = get('feishu');
   const wx = get('wechat');
+  const tg = get('telegram');
 
   return (
     <div>
@@ -173,6 +175,41 @@ export function BridgeTab() {
             {qr?.status === 'error' && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{qr.error ?? '登录失败'}</span>}
           </div>
         )}
+      </SettingsSection>
+
+      {/* Telegram */}
+      <SettingsSection
+        title="Telegram"
+        hint="在 @BotFather 创建 Bot 获取 Token。支持私聊 + 群聊。注意：Telegram 在中国大陆需经代理访问——应用已自动跟随系统/环境代理。"
+        context={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <StatusBadge s={tg} />
+            <Toggle on={tg?.enabled} disabled={!tg?.configured || !tg?.agentId} onChange={(on) => void aiBridge.setBridgeEnabled('telegram', on).then(refresh)} />
+          </div>
+        }
+      >
+        <div className="pv-credentials">
+          <div className="pv-cred-row"><span className="pv-cred-label">绑定助手</span><div className="pv-cred-field"><AgentSelect platform="telegram" /></div></div>
+          <div className="pv-cred-row"><span className="pv-cred-label">Bot Token</span><div className="pv-cred-field"><KeyInput value={tgToken} onChange={setTgToken} placeholder={tg?.configured ? '已配置（重填以覆盖）' : '123456789:ABCdef...'} /></div></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            className="set-btn set-btn--primary"
+            onClick={() => {
+              if (!tg?.agentId) { toasts.error('请先选择绑定的助手'); return; }
+              if (!tgToken.trim()) { toasts.error('请填写 Bot Token'); return; }
+              void bind('telegram', { creds: { token: tgToken.trim() }, enabled: true }).then(() => {
+                setTgToken('');
+                toasts.success('已保存并连接 Telegram');
+              });
+            }}
+          >
+            保存并连接
+          </button>
+          {tg?.configured && (
+            <button className="set-btn set-btn--danger" onClick={() => void aiBridge.unbindBridge('telegram').then(refresh)}>解绑</button>
+          )}
+        </div>
       </SettingsSection>
     </div>
   );
