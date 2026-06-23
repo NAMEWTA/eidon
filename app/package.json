@@ -1,7 +1,7 @@
 {
   "name": "eidon",
   "private": true,
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "EIDON — AI-native multi-agent knowledge workspace",
   "homepage": "https://github.com/NAMEWTA/eidon",
   "author": {
