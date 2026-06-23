@@ -139,10 +139,17 @@ export class SessionGate {
 }
 
 /**
+ * 任意工具定义（对齐 pi 内部 `AnyToolDefinition = ToolDefinition<any,any,any>`）：
+ * 用于把「具体泛型的内置工具定义」与「defineTool 造的 EIDON 工具」收进同一数组——
+ * 内置工具定义因 `renderCall` 逆变不兼容默认 `ToolDefinition`，须用 any 泛型承接。
+ */
+export type AnyTool = ToolDefinition<any, any, any>;
+
+/**
  * 用闸门包装一个工具定义：execute 前先过 {@link SessionGate.guard}（信息类工具会被 guard 直接放行）。
  * 保留原定义的 schema/渲染等其余字段。
  */
-export function gateTool(def: ToolDefinition, gate: SessionGate): ToolDefinition {
+export function gateTool(def: AnyTool, gate: SessionGate): AnyTool {
   return {
     ...def,
     execute: async (toolCallId, params, signal, onUpdate, ctx) => {

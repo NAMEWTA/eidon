@@ -11,10 +11,13 @@ import type {
   AgentActivity,
   AgentSummary,
   AiSessionState,
+  AiSessionSummary,
   AiStreamEvent,
   ModelInfo,
   ModelRef,
   ProviderInfo,
+  SessionPermissionMode,
+  ThinkingLevel,
 } from '@shared/models';
 
 import type { Channel } from '@shared/contracts';
@@ -24,7 +27,19 @@ import { useToastsStore } from './toasts';
 export type ChatPart =
   | { type: 'text'; text: string }
   | { type: 'thinking'; text: string }
-  | { type: 'tool'; toolCallId: string; toolName: string; output: string; isError: boolean; done: boolean };
+  | {
+      type: 'tool';
+      toolCallId: string;
+      toolName: string;
+      /** 工具入参（pi tool_execution_start 带）；展开工具卡片时显示。 */
+      args?: unknown;
+      /** 工具结果（流式累积 + tool_end 的最终结果）。 */
+      result: string;
+      isError: boolean;
+      done: boolean;
+      /** ask 档审批态：pending=等用户批准，approved/denied=已决。 */
+      approval?: 'pending' | 'approved' | 'denied';
+    };
 
 export interface ChatMessage {
   id: string;
@@ -55,6 +70,16 @@ interface AiState {
   activeChannelId: string | null;
   /** 最近的 Agent 后台活动（cron/notify 回灌），最新在前。 */
   activities: AgentActivity[];
+  /** 当前会话工具权限档（操作前询问/自动审核/完整权限/只读）。 */
+  permissionMode: SessionPermissionMode;
+  /** 当前会话推理强度（随会话状态回灌）。 */
+  thinkingLevel: ThinkingLevel;
+  /** 当前 Agent 的历史会话列表（标题栏历史浮层用）。 */
+  sessions: AiSessionSummary[];
+  /** 历史浮层是否展开。 */
+  historyOpen: boolean;
+  /** 当前编辑器打开的文件（作为对话上下文芯片；null=无/已移除）。 */
+  contextFile: string | null;
 }
 
 interface AiActions {
@@ -69,6 +94,20 @@ interface AiActions {
   send(text: string, workspace?: string): Promise<void>;
   cancel(): Promise<void>;
   newChat(): void;
+  /** 刷新当前 Agent 的历史会话列表。 */
+  refreshSessions(): Promise<void>;
+  /** 载入一个历史会话续聊（回放历史 + 切活会话）。 */
+  loadSession(sessionFile: string): Promise<void>;
+  /** 切换工具权限档（有活会话则即时下发后端）。 */
+  setPermissionMode(mode: SessionPermissionMode): void;
+  /** 切换推理强度（有活会话则即时下发后端）。 */
+  setThinkingLevel(level: ThinkingLevel): void;
+  /** ask 档下对某次工具调用批准/拒绝。 */
+  approveTool(toolCallId: string, approved: boolean): void;
+  /** 设置/清除作为上下文的当前编辑器文件。 */
+  setContextFile(path: string | null): void;
+  /** 开关历史浮层。 */
+  setHistoryOpen(open: boolean): void;
   setProviderKey(provider: string, apiKey: string): Promise<void>;
   setDefaultModel(model: ModelRef | null): Promise<void>;
   switchModel(model: ModelRef): Promise<void>;
@@ -132,6 +171,11 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
   channels: [],
   activeChannelId: null,
   activities: [],
+  permissionMode: 'auto',
+  thinkingLevel: 'medium',
+  sessions: [],
+  historyOpen: false,
+  contextFile: null,
 
   async init() {
     if (get().ready) return;
@@ -140,7 +184,13 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
     if (!unsubscribe) {
       const offStream = await aiBridge.onStream((e) => get()._ingest(e));
       const offState = await aiBridge.onSessionState((s: AiSessionState) =>
-        set({ isStreaming: s.isStreaming, model: s.model, sessionId: s.sessionId }),
+        set({
+          isStreaming: s.isStreaming,
+          model: s.model,
+          sessionId: s.sessionId,
+          permissionMode: s.permissionMode,
+          thinkingLevel: s.thinkingLevel,
+        }),
       );
       const offActivity = await aiBridge.onActivity((a) => {
         set((s) => ({ activities: [a, ...s.activities].slice(0, 50) }));
@@ -213,8 +263,9 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
     const { sessionId, state } = await aiBridge.newSession({
       agentId: get().activeAgentId ?? undefined,
       workspace,
+      permissionMode: get().permissionMode,
     });
-    set({ sessionId, model: state.model, isStreaming: state.isStreaming });
+    set({ sessionId, model: state.model, isStreaming: state.isStreaming, permissionMode: state.permissionMode });
     // 用户在面板里手动选过模型 → 在新会话上即时应用（覆盖 Agent 默认）。
     const sel = get().selectedModel;
     if (sel && (sel.provider !== state.model?.provider || sel.id !== state.model?.id)) {
@@ -272,6 +323,80 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
     const old = get().sessionId;
     if (old) void aiBridge.disposeSession(old);
     set({ sessionId: null, messages: [], isStreaming: false, error: null });
+    void get().refreshSessions();
+  },
+
+  async refreshSessions() {
+    // 群聊模式无持久化历史会话列表。
+    if (get().activeChannelId) {
+      set({ sessions: [] });
+      return;
+    }
+    try {
+      const sessions = await aiBridge.listSessions(get().activeAgentId ?? undefined);
+      set({ sessions });
+    } catch {
+      set({ sessions: [] });
+    }
+  },
+
+  async loadSession(sessionFile: string) {
+    const old = get().sessionId;
+    if (old) void aiBridge.disposeSession(old);
+    set({ messages: [], isStreaming: false, error: null, historyOpen: false });
+    try {
+      const { sessionId, state, messages } = await aiBridge.loadSession(
+        sessionFile,
+        get().activeAgentId ?? undefined,
+      );
+      set({
+        sessionId,
+        model: state.model,
+        permissionMode: state.permissionMode,
+        messages,
+        isStreaming: state.isStreaming,
+      });
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+    }
+  },
+
+  setPermissionMode(mode: SessionPermissionMode) {
+    set({ permissionMode: mode });
+    const sessionId = get().sessionId;
+    if (sessionId) void aiBridge.setPermissionMode(sessionId, mode);
+  },
+
+  setThinkingLevel(level: ThinkingLevel) {
+    set({ thinkingLevel: level });
+    const sessionId = get().sessionId;
+    if (sessionId) void aiBridge.setThinkingLevel(sessionId, level);
+  },
+
+  approveTool(toolCallId: string, approved: boolean) {
+    const sessionId = get().sessionId;
+    if (!sessionId) return;
+    // 乐观更新审批态（最终以 tool_end 收敛）。
+    set((s) => ({
+      messages: s.messages.map((m) => ({
+        ...m,
+        parts: m.parts.map((p) =>
+          p.type === 'tool' && p.toolCallId === toolCallId
+            ? { ...p, approval: approved ? 'approved' : 'denied' }
+            : p,
+        ),
+      })),
+    }));
+    void aiBridge.approveTool(sessionId, toolCallId, approved);
+  },
+
+  setContextFile(path: string | null) {
+    set({ contextFile: path });
+  },
+
+  setHistoryOpen(open: boolean) {
+    set({ historyOpen: open });
+    if (open) void get().refreshSessions();
   },
 
   async setProviderKey(provider: string, apiKey: string) {
@@ -328,7 +453,15 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
             ...m,
             parts: [
               ...m.parts,
-              { type: 'tool', toolCallId: e.toolCallId, toolName: e.toolName, output: '', isError: false, done: false },
+              {
+                type: 'tool',
+                toolCallId: e.toolCallId,
+                toolName: e.toolName,
+                args: e.args,
+                result: '',
+                isError: false,
+                done: false,
+              },
             ],
           })),
         }));
@@ -339,7 +472,7 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
             ...m,
             parts: m.parts.map((p) =>
               p.type === 'tool' && p.toolCallId === e.toolCallId
-                ? { ...p, output: p.output + e.chunk }
+                ? { ...p, result: p.result + e.chunk }
                 : p,
             ),
           })),
@@ -351,10 +484,51 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
             ...m,
             parts: m.parts.map((p) =>
               p.type === 'tool' && p.toolCallId === e.toolCallId
-                ? { ...p, isError: e.isError, done: true }
+                ? {
+                    ...p,
+                    isError: e.isError,
+                    done: true,
+                    // 有最终结果则以其为准（覆盖流式累积）；审批态收敛为已批准。
+                    result: e.result != null && e.result !== '' ? e.result : p.result,
+                    approval: p.approval === 'pending' ? 'approved' : p.approval,
+                  }
                 : p,
             ),
           })),
+        }));
+        break;
+      case 'tool_approval':
+        // ask 档：把对应工具 part 标为待批准（若 tool_start 尚未到，先建一个占位 part）。
+        set((s) => ({
+          messages: withLastAssistant(s.messages, (m) => {
+            const exists = m.parts.some((p) => p.type === 'tool' && p.toolCallId === e.toolCallId);
+            if (exists) {
+              return {
+                ...m,
+                parts: m.parts.map((p) =>
+                  p.type === 'tool' && p.toolCallId === e.toolCallId
+                    ? { ...p, approval: 'pending', args: p.args ?? e.args }
+                    : p,
+                ),
+              };
+            }
+            return {
+              ...m,
+              parts: [
+                ...m.parts,
+                {
+                  type: 'tool',
+                  toolCallId: e.toolCallId,
+                  toolName: e.toolName,
+                  args: e.args,
+                  result: '',
+                  isError: false,
+                  done: false,
+                  approval: 'pending',
+                },
+              ],
+            };
+          }),
         }));
         break;
       case 'done':

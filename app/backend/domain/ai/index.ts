@@ -17,6 +17,7 @@ export {
   AiSession,
   projectEvent,
   projectHistory,
+  listSessionSummaries,
   type CreateSessionParams,
   type PromptImage,
 } from "./session";
@@ -35,6 +36,8 @@ export {
   createNotifyTool,
   createSearchKbTool,
   createReadNodeTool,
+  createBuiltinSideEffectTool,
+  SIDE_EFFECT_BUILTIN_TOOLS,
   type CollaborationDeps,
   type NotifyDeps,
   type KnowledgeDeps,

@@ -25,15 +25,15 @@ describe("projectEvent", () => {
   });
 
   it("projects tool lifecycle events", () => {
-    expect(projectEvent("s1", ev({ type: "tool_execution_start", toolCallId: "t1", toolName: "read", args: {} }))).toEqual([
-      { kind: "tool_start", sessionId: "s1", toolCallId: "t1", toolName: "read" },
+    expect(projectEvent("s1", ev({ type: "tool_execution_start", toolCallId: "t1", toolName: "read", args: { path: "a.md" } }))).toEqual([
+      { kind: "tool_start", sessionId: "s1", toolCallId: "t1", toolName: "read", args: { path: "a.md" } },
     ]);
     expect(
       projectEvent("s1", ev({ type: "tool_execution_update", toolCallId: "t1", toolName: "read", args: {}, partialResult: "abc" })),
     ).toEqual([{ kind: "tool_update", sessionId: "s1", toolCallId: "t1", chunk: "abc" }]);
     expect(
-      projectEvent("s1", ev({ type: "tool_execution_end", toolCallId: "t1", toolName: "read", result: {}, isError: true })),
-    ).toEqual([{ kind: "tool_end", sessionId: "s1", toolCallId: "t1", isError: true }]);
+      projectEvent("s1", ev({ type: "tool_execution_end", toolCallId: "t1", toolName: "read", result: "done", isError: true })),
+    ).toEqual([{ kind: "tool_end", sessionId: "s1", toolCallId: "t1", isError: true, result: "done" }]);
   });
 
   it("projects message + agent lifecycle", () => {

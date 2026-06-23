@@ -47,6 +47,18 @@ export const aiHandlers: IpcHandlers = {
     aiService.disposeSession(sessionId);
   },
   "ai:sessionState": ({ sessionId }) => aiService.sessionState(sessionId),
+  "ai:listSessions": ({ agentId }) => aiService.listSessions(agentId),
+  "ai:loadSession": ({ agentId, sessionFile }) =>
+    aiService.loadSession({ agentId, sessionFile }),
+  "ai:setPermissionMode": ({ sessionId, mode }) => {
+    aiService.setPermissionMode(sessionId, mode);
+  },
+  "ai:setThinkingLevel": ({ sessionId, level }) => {
+    aiService.setThinkingLevel(sessionId, level);
+  },
+  "ai:approveTool": ({ sessionId, toolCallId, approved }) => {
+    aiService.approveTool(sessionId, toolCallId, approved);
+  },
 
   "agents:list": () => aiService.listAgents(),
   "agents:get": ({ agentId }) => aiService.getAgent(agentId),

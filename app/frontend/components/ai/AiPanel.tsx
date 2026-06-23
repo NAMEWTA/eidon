@@ -2,18 +2,22 @@
  * AiPanel —— 右抽屉 AI 对话面板（P1）。
  *
  * 未配置模型提供商 → 引导去「设置 → AI」；已配置 → 消息流 + Composer（@//$ 自动补全）。
- * @ 文件来自工作区索引；$ 变量为内置上下文 token；@agent: 与 /skill|command 框架就绪（P2 填充数据）。
+ * 标题栏：对话对象选择 + 历史浮层 + 复制整段 + 新对话。模型/思考/权限档移入 Composer 控制条。
+ * 打开时把当前编辑器文件作为对话上下文（Composer 上方芯片 + 发送时前置一行提示）。
+ * @ 文件来自工作区索引；$ 变量为内置上下文 token；@agent: 与 /skill|command 框架就绪。
  */
 import { useCallback, useEffect, useState } from 'react';
 
 import { aiBridge } from '@bridge/ipc';
-import type { ModelRef, SkillInfo } from '@shared/models';
+import type { ModelRef, SkillInfo, ThinkingLevel } from '@shared/models';
 import { useI18n } from '../../i18n';
 import { useAiStore } from '../../stores/ai';
+import { useTabsStore } from '../../stores/tabs';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { useWorkspaceIndexStore } from '../../stores/workspaceIndex';
 import { Composer, type ComposerTrigger, type MenuItem } from './Composer';
 import { MessageList } from './MessageList';
+import { SessionHistoryPopover } from './SessionHistoryPopover';
 
 /** 内置 $ 变量（发送时对部分做客户端展开）。 */
 const VARIABLES: { name: string; hint: string }[] = [
@@ -42,17 +46,33 @@ function fuzzy(query: string, target: string): boolean {
   return i === q.length;
 }
 
+function modelKey(m: ModelRef | null): string {
+  return m ? `${m.provider}/${m.id}` : '';
+}
+
 export function AiPanel() {
   const { t } = useI18n();
   const store = useAiStore();
   const currentFolder = useWorkspaceStore((s) => s.currentFolder);
   const entries = useWorkspaceIndexStore((s) => s.entries);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [copiedAll, setCopiedAll] = useState(false);
+
+  // 当前编辑器文件 → 对话上下文芯片（随活动标签变化）。
+  const activeFilePath = useTabsStore((s) => {
+    const tab = s.tabs.find((x) => x.id === s.activeId);
+    return tab?.filePath ?? tab?.fileName ?? null;
+  });
 
   useEffect(() => {
     void store.init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    store.setContextFile(activeFilePath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilePath]);
 
   // 发现可用 skills（随工作区变化刷新）。
   useEffect(() => {
@@ -144,13 +164,36 @@ export function AiPanel() {
 
   const onSend = useCallback(
     (text: string) => {
-      void store.send(expand(text), currentFolder ?? undefined);
+      const expanded = expand(text);
+      // 当前编辑器文件作为上下文：前置一行轻量提示，Agent 可据此用 read 打开。
+      const cf = store.contextFile;
+      const prefixed = cf ? `[当前查看文件：${cf}]\n${expanded}` : expanded;
+      void store.send(prefixed, currentFolder ?? undefined);
     },
     [store, expand, currentFolder],
   );
 
   function openSettings() {
     window.dispatchEvent(new CustomEvent('eidon:open-settings', { detail: { section: 'ai' } }));
+  }
+
+  function copyAll() {
+    const text = store.messages
+      .map((m) => {
+        const who = m.role === 'user' ? t('ai.you') : m.agentName || t('ai.assistant');
+        const body = m.parts
+          .filter((p): p is Extract<typeof p, { type: 'text' }> => p.type === 'text')
+          .map((p) => p.text)
+          .join('\n')
+          .trim();
+        return body ? `${who}:\n${body}` : '';
+      })
+      .filter(Boolean)
+      .join('\n\n');
+    if (!text) return;
+    void navigator.clipboard.writeText(text);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 1200);
   }
 
   const selectValue = store.activeChannelId
@@ -165,10 +208,14 @@ export function AiPanel() {
     else store.setActiveAgent(null);
   }
 
-  const modelKey = (m: ModelRef | null): string => (m ? `${m.provider}/${m.id}` : '');
   // 当前会话模型：用户选 > 会话态 > 该 Agent 默认 > 全局默认。
   const activeAgent = store.agents.find((a) => a.id === store.activeAgentId) ?? null;
   const displayModel = store.selectedModel ?? store.model ?? activeAgent?.model ?? store.defaultModel;
+
+  const onModelChange = (v: string) => {
+    const i = v.indexOf('/');
+    store.selectModel(i > 0 ? { provider: v.slice(0, i), id: v.slice(i + 1) } : null);
+  };
 
   return (
     <div className="ai-panel">
@@ -195,26 +242,44 @@ export function AiPanel() {
             </optgroup>
           )}
         </select>
-        {!store.activeChannelId && (
-          <select
-            className="ai-panel__model"
-            value={modelKey(displayModel)}
-            onChange={(e) => {
-              const v = e.target.value;
-              const i = v.indexOf('/');
-              store.selectModel(i > 0 ? { provider: v.slice(0, i), id: v.slice(i + 1) } : null);
-            }}
-            title="切换模型（默认=该助手的模型）"
+
+        <div className="ai-panel__header-actions">
+          <div className="ai-panel__history-wrap">
+            <button
+              className="ai-panel__icon-btn"
+              data-ai-history-trigger
+              onClick={() => store.setHistoryOpen(!store.historyOpen)}
+              title={t('ai.history')}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 3v5h5" />
+                <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+            </button>
+            {store.historyOpen && <SessionHistoryPopover onClose={() => store.setHistoryOpen(false)} />}
+          </div>
+          <button
+            className={`ai-panel__icon-btn${copiedAll ? ' is-copied' : ''}`}
+            onClick={copyAll}
+            disabled={store.messages.length === 0}
+            title={t('ai.copyAll')}
           >
-            <option value="">（默认模型）</option>
-            {store.models.map((m) => (
-              <option key={modelKey(m)} value={modelKey(m)}>{m.name}</option>
-            ))}
-          </select>
-        )}
-        <button className="ai-panel__new" onClick={() => store.newChat()} title={t('ai.newChat')}>
-          ＋
-        </button>
+            {copiedAll ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            )}
+          </button>
+          <button className="ai-panel__icon-btn" onClick={() => store.newChat()} title={t('ai.newChat')}>
+            ＋
+          </button>
+        </div>
       </div>
 
       {!store.available ? (
@@ -239,6 +304,13 @@ export function AiPanel() {
             resolveItems={resolveItems}
             onSend={onSend}
             onCancel={() => void store.cancel()}
+            contextFile={store.contextFile}
+            onRemoveContext={() => store.setContextFile(null)}
+            models={store.activeChannelId ? [] : store.models}
+            modelKey={modelKey(displayModel)}
+            onModelChange={onModelChange}
+            thinkingLevel={store.thinkingLevel as ThinkingLevel}
+            onThinkingChange={(lv) => store.setThinkingLevel(lv)}
           />
         </>
       )}

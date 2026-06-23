@@ -20,6 +20,7 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 
 import type {
   AiSessionState,
+  AiSessionSummary,
   AiStreamEvent,
   ChatMessageWire,
   ChatPartWire,
@@ -178,6 +179,34 @@ export function projectHistory(entries: readonly SessionEntry[]): ChatMessageWir
   return messages;
 }
 
+/** ISO 化（pi 的 SessionInfo.created/modified 为 Date；防御性兼容字符串/数字）。 */
+function toIso(value: Date | string | number): string {
+  return (value instanceof Date ? value : new Date(value)).toISOString();
+}
+
+/**
+ * 列出某 Agent 的历史会话摘要（按更新时间倒序），供「标题栏历史浮层」。
+ * 读 `sessionsDir` 下全部会话文件元数据；目录缺失/损坏返回空列表（不阻断对话）。
+ */
+export async function listSessionSummaries(sessionsDir: string): Promise<AiSessionSummary[]> {
+  let infos: Awaited<ReturnType<typeof SessionManager.listAll>>;
+  try {
+    infos = await SessionManager.listAll(sessionsDir);
+  } catch {
+    return [];
+  }
+  return infos
+    .map((info) => ({
+      sessionFile: info.path,
+      id: info.id,
+      title: (info.name?.trim() || info.firstMessage?.trim() || "新对话").slice(0, 60),
+      createdAt: toIso(info.created),
+      updatedAt: toIso(info.modified),
+      messageCount: info.messageCount,
+    }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 export interface CreateSessionParams {
   /** EIDON 侧会话 id（由 service 生成，区别于 pi 的 sessionId）。 */
   sessionId: string;
@@ -296,6 +325,11 @@ export class AiSession {
     return this.sessionManager.getSessionFile() ?? null;
   }
 
+  /** 回放本会话已持久化的历史消息（供续聊载入时回灌渲染层）。 */
+  getHistory(): ChatMessageWire[] {
+    return projectHistory(this.sessionManager.getBranch());
+  }
+
   /** 发送用户消息（可附图片，供视觉模型；流式结果经事件推送）。 */
   async prompt(text: string, images?: PromptImage[]): Promise<void> {
     try {
@@ -320,6 +354,12 @@ export class AiSession {
   /** 中止当前生成。 */
   async cancel(): Promise<void> {
     await this.session.abort();
+  }
+
+  /** 运行时切换推理强度（off 不下发，保留模型默认）。 */
+  setThinkingLevel(level: ThinkingLevel): void {
+    const pi = toPiThinkingLevel(level);
+    if (pi) this.session.setThinkingLevel(pi);
   }
 
   /** 运行时切换模型（须已配置该 provider 凭证）。 */

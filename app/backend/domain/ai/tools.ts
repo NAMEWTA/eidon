@@ -4,10 +4,42 @@
  * 多 Agent 协作工具：`subagent` 把子任务委派给另一个 Agent。工具只声明 schema + 调用注入的回调，
  * 真正的「跑一个子 Agent 会话」逻辑由 service 注入（保持 domain 不碰 capability）。
  */
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import {
+  createBashToolDefinition,
+  createEditToolDefinition,
+  createWriteToolDefinition,
+  defineTool,
+  type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 
+import type { AnyTool } from "./tool-gate";
+
 import type { SearchHit } from "@shared/models";
+
+/**
+ * 需门控的副作用内置工具名（写盘 / 执行命令）。信息类内置（read/grep/find/ls）不在此列，
+ * 仍走 SDK 的 `tools` 内置激活、永远放行；这三个改由 service 包装门控后作为 customTool 注入。
+ */
+export const SIDE_EFFECT_BUILTIN_TOOLS = ["bash", "edit", "write"] as const;
+
+/**
+ * 创建一个副作用内置工具的「定义」（非 AgentTool），供 service 用 {@link gateTool} 包门控后注入 customTools。
+ * 这样 bash/edit/write 不再作为内置激活，而是经闸门的 customTool —— execute 前先过权限档判定。
+ * @returns 对应工具定义；非副作用内置名返回 null。
+ */
+export function createBuiltinSideEffectTool(name: string, cwd: string): AnyTool | null {
+  switch (name) {
+    case "bash":
+      return createBashToolDefinition(cwd);
+    case "edit":
+      return createEditToolDefinition(cwd);
+    case "write":
+      return createWriteToolDefinition(cwd);
+    default:
+      return null;
+  }
+}
 
 export interface CollaborationDeps {
   /** 委派任务给目标 Agent（按 id），返回其文本结论；不可调用时返回说明文本。 */

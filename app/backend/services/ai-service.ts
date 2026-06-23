@@ -15,9 +15,11 @@ import type {
   AgentDetail,
   AgentSummary,
   AiSessionState,
+  AiSessionSummary,
   BridgeBinding,
   BridgePlatform,
   BridgeStatus,
+  ChatMessageWire,
   CreateAgentInput,
   CronJob,
   CronJobInput,
@@ -25,7 +27,9 @@ import type {
   ModelInfo,
   ModelRef,
   ProviderInfo,
+  SessionPermissionMode,
   SkillInfo,
+  ThinkingLevel,
   ToolInfo,
   UpdateAgentPatch,
 } from "@shared/models";
@@ -98,6 +102,10 @@ import {
 } from "../capabilities/ai/channels-store";
 import {
   AiSession,
+  SessionGate,
+  gateTool,
+  INFORMATION_TOOLS,
+  createBuiltinSideEffectTool,
   createNotifyTool,
   createReadNodeTool,
   createSearchKbTool,
@@ -105,6 +113,7 @@ import {
   listAllModels,
   listAvailableModels,
   listProviderNames,
+  listSessionSummaries,
   listSkills as discoverSkills,
   resolveToolNames,
   type PromptImage,
@@ -393,11 +402,13 @@ class AiService {
   async newSession(req: {
     agentId?: string;
     workspace?: string;
+    permissionMode?: SessionPermissionMode;
   }): Promise<{ sessionId: string; state: AiSessionState }> {
     const agentId = req.agentId ?? (await this.ensureDefaultAgent());
     const session = await this.buildSession(agentId, {
       workspace: req.workspace,
       role: "interactive",
+      permissionMode: req.permissionMode,
     });
 
     session.subscribe((e) => emitEvent("eidon:ai-stream", e));
@@ -406,6 +417,54 @@ class AiService {
     const state = session.getState();
     emitEvent("eidon:ai-session", state);
     return { sessionId: session.id, state };
+  }
+
+  /** 列出某 Agent 的历史会话摘要（标题栏历史浮层用；缺省 Agent 取默认）。 */
+  async listSessions(agentId?: string): Promise<AiSessionSummary[]> {
+    const id = agentId ?? (await this.ensureDefaultAgent());
+    return listSessionSummaries(agentSessionsDir(id));
+  }
+
+  /**
+   * 载入一个历史会话续聊：基于其持久化文件建活会话（续接上下文）+ 回放历史消息视图。
+   * 续聊默认用「自动审核」档（用户可在面板再切）。
+   */
+  async loadSession(req: {
+    agentId?: string;
+    sessionFile: string;
+  }): Promise<{ sessionId: string; state: AiSessionState; messages: ChatMessageWire[] }> {
+    const agentId = req.agentId ?? (await this.ensureDefaultAgent());
+    const session = await this.buildSession(agentId, {
+      role: "interactive",
+      sessionFile: req.sessionFile,
+      permissionMode: "auto",
+    });
+    session.subscribe((e) => emitEvent("eidon:ai-stream", e));
+    this.sessions.set(session.id, session);
+
+    const messages = session.getHistory();
+    const state = session.getState();
+    emitEvent("eidon:ai-session", state);
+    return { sessionId: session.id, state, messages };
+  }
+
+  /** 运行时切换会话权限档（工具门控立即生效）。 */
+  setPermissionMode(sessionId: string, mode: SessionPermissionMode): void {
+    const session = this.requireSession(sessionId);
+    session.setPermissionMode(mode);
+    emitEvent("eidon:ai-session", session.getState());
+  }
+
+  /** 运行时切换会话推理强度。 */
+  setThinkingLevel(sessionId: string, level: ThinkingLevel): void {
+    const session = this.requireSession(sessionId);
+    session.setThinkingLevel(level);
+    emitEvent("eidon:ai-session", session.getState());
+  }
+
+  /** ask 档下用户对某次工具调用的批准/拒绝（解析挂起的闸门 Promise）。 */
+  approveTool(sessionId: string, toolCallId: string, approved: boolean): void {
+    this.sessions.get(sessionId)?.approveTool(toolCallId, approved);
   }
 
   /** 委派子任务给目标 Agent（受可见性/激活开关约束），返回其文本结论。 */
@@ -957,7 +1016,12 @@ class AiService {
    */
   private async buildSession(
     agentId: string,
-    opts: { workspace?: string; role: SessionRole; sessionFile?: string },
+    opts: {
+      workspace?: string;
+      role: SessionRole;
+      sessionFile?: string;
+      permissionMode?: SessionPermissionMode;
+    },
   ): Promise<AiSession> {
     const config = await readAgentConfig(agentId);
     if (!config) throw new Error(`agent not found: ${agentId}`);
@@ -971,36 +1035,59 @@ class AiService {
     const model = await this.resolveModel(config);
     const cwd = opts.workspace?.trim() || getRuntimePaths().aiHome;
     const globalDisabled = (await readTools()).disabled;
-    const toolNames = this.effectiveToolNames(config, globalDisabled);
+    const effective = this.effectiveToolNames(config, globalDisabled);
+    // 信息类内置（read/grep/find/ls）仍走 SDK 内置激活；副作用内置（bash/edit/write）改为门控 customTool。
+    const infoToolNames = effective.filter((name) => INFORMATION_TOOLS.has(name));
+
+    // 工具闸门：交互会话用请求档（默认「自动审核」）；非交互（cron/subagent/bridge）无人值守，
+    // 坍缩为「完整权限」以免 ask/auto 的人工确认永久挂起（与 HanaAgent 同策略）。
+    const sessionId = createNodeId();
+    const permissionMode: SessionPermissionMode =
+      opts.role === "interactive" ? (opts.permissionMode ?? "auto") : "operate";
+    const gate = new SessionGate(sessionId, permissionMode, (e) => emitEvent("eidon:ai-stream", e));
 
     let systemPrompt = fillTemplate(
       assemblePersona(identity, ishiki, pinned, experience),
       config,
     );
+
+    // 全部 customTools 统一过闸门：信息类被闸门直接放行，副作用类受权限档门控（deny/prompt）。
     const customTools: ReturnType<typeof createSubagentTool>[] = [];
+    // 副作用内置工具（bash/edit/write）→ 门控 customTool（不再作为 SDK 内置激活）。
+    for (const name of effective) {
+      if (INFORMATION_TOOLS.has(name)) continue;
+      const def = createBuiltinSideEffectTool(name, cwd);
+      if (def) customTools.push(gateTool(def, gate));
+    }
     if (opts.role === "interactive") {
       const roster = await this.buildRoster(agentId);
       if (roster) systemPrompt += `\n\n${roster}`;
       customTools.push(
-        createSubagentTool({
-          runSubAgent: (id, task) => this.runSubAgent(id, task, opts.workspace),
-        }),
+        gateTool(
+          createSubagentTool({
+            runSubAgent: (id, task) => this.runSubAgent(id, task, opts.workspace),
+          }),
+          gate,
+        ),
       );
     }
     if (opts.role === "interactive" || opts.role === "cron") {
       customTools.push(
-        createNotifyTool({
-          notify: (title, body) =>
-            this.emitActivity({
-              kind: "notify",
-              agentId,
-              agentName: config.name,
-              label: title,
-              status: "success",
-              summary: body,
-              notify: true,
-            }),
-        }),
+        gateTool(
+          createNotifyTool({
+            notify: (title, body) =>
+              this.emitActivity({
+                kind: "notify",
+                agentId,
+                agentName: config.name,
+                label: title,
+                status: "success",
+                summary: body,
+                notify: true,
+              }),
+          }),
+          gate,
+        ),
       );
     }
 
@@ -1011,11 +1098,14 @@ class AiService {
         searchKb: (query: string, maxResults: number) => searchInDir(kbWorkspace, query, maxResults),
         readNode: (relPath: string) => this.readWorkspaceFile(kbWorkspace, relPath),
       };
-      customTools.push(createSearchKbTool(kbDeps), createReadNodeTool(kbDeps));
+      customTools.push(
+        gateTool(createSearchKbTool(kbDeps), gate),
+        gateTool(createReadNodeTool(kbDeps), gate),
+      );
     }
 
     return AiSession.create({
-      sessionId: createNodeId(),
+      sessionId,
       agentId,
       apiKeys: auth.keys,
       model,
@@ -1025,8 +1115,9 @@ class AiService {
       agentDir: agentDir(agentId),
       sessionsDir: agentSessionsDir(agentId),
       sessionFile: opts.sessionFile,
-      toolNames,
+      toolNames: infoToolNames,
       customTools: customTools.length ? customTools : undefined,
+      gate,
     });
   }
 

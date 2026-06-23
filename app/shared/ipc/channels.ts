@@ -52,6 +52,7 @@ import type {
   ScannedNode,
   SearchHit,
   SessionPayload,
+  ThinkingLevel,
   SiblingSession,
   SkillInfo,
   TagCount,
@@ -352,6 +353,11 @@ export interface IpcContract {
     req: { sessionId: string; mode: SessionPermissionMode };
     res: void;
   };
+  /** 运行时切换会话推理强度。 */
+  "ai:setThinkingLevel": {
+    req: { sessionId: string; level: ThinkingLevel };
+    res: void;
+  };
   /** ask 档下用户对某次工具调用的批准/拒绝。 */
   "ai:approveTool": {
     req: { sessionId: string; toolCallId: string; approved: boolean };
@@ -530,6 +536,7 @@ const CHANNEL_PRESENCE: Record<Channel, true> = {
   "ai:listSessions": true,
   "ai:loadSession": true,
   "ai:setPermissionMode": true,
+  "ai:setThinkingLevel": true,
   "ai:approveTool": true,
   "agents:list": true,
   "agents:get": true,

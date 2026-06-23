@@ -8,17 +8,21 @@ import type {
   AgentDetail,
   AgentSummary,
   AiSessionState,
+  AiSessionSummary,
   AiStreamEvent,
   BridgeBinding,
   BridgeInbound,
   BridgeStatus,
+  ChatMessageWire,
   CreateAgentInput,
   CronJob,
   CronJobInput,
   CronJobPatch,
   ModelInfo,
   ProviderInfo,
+  SessionPermissionMode,
   SkillInfo,
+  ThinkingLevel,
   ToolInfo,
   UpdateAgentPatch,
   WechatLoginState,
@@ -56,7 +60,11 @@ export const aiBridge = {
     eidonInvoke("providers:fetchModels", req),
 
   // sessions
-  newSession: (req: { agentId?: string; workspace?: string }): Promise<{
+  newSession: (req: {
+    agentId?: string;
+    workspace?: string;
+    permissionMode?: SessionPermissionMode;
+  }): Promise<{
     sessionId: string;
     state: AiSessionState;
   }> => eidonInvoke("ai:newSession", req),
@@ -70,6 +78,24 @@ export const aiBridge = {
     eidonInvoke("ai:disposeSession", { sessionId }),
   sessionState: (sessionId: string): Promise<AiSessionState | null> =>
     eidonInvoke("ai:sessionState", { sessionId }),
+  /** 列出某 Agent 的历史会话（缺省取默认 Agent）。 */
+  listSessions: (agentId?: string): Promise<AiSessionSummary[]> =>
+    eidonInvoke("ai:listSessions", { agentId }),
+  /** 载入历史会话续聊：建活会话 + 回放历史消息视图。 */
+  loadSession: (
+    sessionFile: string,
+    agentId?: string,
+  ): Promise<{ sessionId: string; state: AiSessionState; messages: ChatMessageWire[] }> =>
+    eidonInvoke("ai:loadSession", { agentId, sessionFile }),
+  /** 运行时切换会话权限档。 */
+  setPermissionMode: (sessionId: string, mode: SessionPermissionMode): Promise<void> =>
+    eidonInvoke("ai:setPermissionMode", { sessionId, mode }),
+  /** 运行时切换会话推理强度。 */
+  setThinkingLevel: (sessionId: string, level: ThinkingLevel): Promise<void> =>
+    eidonInvoke("ai:setThinkingLevel", { sessionId, level }),
+  /** ask 档下对某次工具调用批准/拒绝。 */
+  approveTool: (sessionId: string, toolCallId: string, approved: boolean): Promise<void> =>
+    eidonInvoke("ai:approveTool", { sessionId, toolCallId, approved }),
 
   // agents
   listAgents: (): Promise<AgentSummary[]> => eidonInvoke("agents:list", {}),
