@@ -19,13 +19,14 @@ import {
   createNode,
   moveNode,
   promoteFolderToNode,
+  relocateNode,
   renameNode,
   scanWorkspace,
   updateNodeFields,
-  type NodeStore,
+  type RelocatableStore,
 } from "@backend/domain/nodes";
 
-const fsStore = (root: string): NodeStore => ({
+const fsStore = (root: string): RelocatableStore => ({
   async listDir(relPath) {
     const abs = relPath ? join(root, relPath) : root;
     const entries = await readdir(abs, { withFileTypes: true });
@@ -54,10 +55,13 @@ const fsStore = (root: string): NodeStore => ({
       return false;
     }
   },
+  async remove(relPath) {
+    await rm(join(root, relPath), { recursive: true, force: true });
+  },
 });
 
 const roots: string[] = [];
-const newStore = async (): Promise<{ root: string; store: NodeStore }> => {
+const newStore = async (): Promise<{ root: string; store: RelocatableStore }> => {
   const root = await mkdtemp(join(tmpdir(), "eidon-node-crud-"));
   roots.push(root);
   return { root, store: fsStore(root) };
@@ -337,5 +341,59 @@ describe("promoteFolderToNode", () => {
     await expect(
       promoteFolderToNode(store, { path: "Inbox", templateLayer: layers[1] }),
     ).rejects.toThrow(/already a node/);
+  });
+});
+
+describe("relocateNode", () => {
+  // 构建 L1 A（含 L2 A/X，含 L3 A/X/Y）+ L1 B（含 L2 B/Z），同一模板链。
+  const buildFixture = async () => {
+    const { root, store } = await newStore();
+    const layers = makeLayers();
+    await createNode(store, { parentPath: "", name: "A", templateLayer: layers[1], fields: { area: "a" } });
+    await createNode(store, { parentPath: "A", name: "X", templateLayer: layers[2], fields: { category: "x" } });
+    await createNode(store, { parentPath: "A/X", name: "Y", templateLayer: layers[3], fields: { title: "y" } });
+    await createNode(store, { parentPath: "", name: "B", templateLayer: layers[1], fields: { area: "b" } });
+    await createNode(store, { parentPath: "B", name: "Z", templateLayer: layers[2], fields: { category: "z" } });
+    return { root, store, layers };
+  };
+
+  it("demotes an L2 into a deeper node (re-levels to L3) and strips descendants past L3", async () => {
+    const { root, store } = await buildFixture();
+
+    const result = await relocateNode(store, { path: "A/X", newParentPath: "B/Z" });
+    expect(result.path).toBe("B/Z/X");
+    expect(result.strippedIdentity).toBe(false);
+
+    // X 物理深度 3 → 重写 level=3（id 不变，原为 L2）。
+    expect((await readNodeJson(root, "B/Z/X")).level).toBe(3);
+    // X 的原 L3 子 Y 现在深度 4 → 剥离 .node 身份，变普通文件夹（目录仍在）。
+    expect(await store.exists("B/Z/X/Y")).toBe(true);
+    expect(await store.exists("B/Z/X/Y/.node/node.json")).toBe(false);
+
+    // 删缓存重扫：B/Z/X 为 L3 节点，B/Z/X/Y 不再是节点。
+    const tree = await scanWorkspace(store);
+    const paths = tree.nodes.map((n) => `${n.path}:L${n.node.level}`);
+    expect(paths).toContain("B/Z/X:L3");
+    expect(paths.some((p) => p.startsWith("B/Z/X/Y"))).toBe(false);
+    expect(await store.exists("A/X")).toBe(false);
+  });
+
+  it("demotes an L3 below L3 → strips identity to a plain folder", async () => {
+    const { store, layers } = await buildFixture();
+    // 同链下另建一个 L3 A/X/W，作为 Y 的落点。
+    await createNode(store, { parentPath: "A/X", name: "W", templateLayer: layers[3], fields: { title: "w" } });
+
+    // 把 L3 Y 移到同级 L3 W 下（第 4 层）→ 剥离身份变普通文件夹（"L3→普通文件"）。
+    const result = await relocateNode(store, { path: "A/X/Y", newParentPath: "A/X/W" });
+    expect(result.path).toBe("A/X/W/Y");
+    expect(result.strippedIdentity).toBe(true);
+    expect(await store.exists("A/X/W/Y")).toBe(true);
+    expect(await store.exists("A/X/W/Y/.node/node.json")).toBe(false);
+    expect(await store.exists("A/X/W/.node/node.json")).toBe(true); // 落点本身仍是节点
+  });
+
+  it("rejects relocating a node inside itself", async () => {
+    const { store } = await buildFixture();
+    await expect(relocateNode(store, { path: "A/X", newParentPath: "A/X/Y" })).rejects.toThrow(/inside itself/);
   });
 });

@@ -64,6 +64,15 @@ export interface MoveNodeInput {
   newParentPath: string;
 }
 
+/**
+ * 降级/重定位节点（区别于严格 {@link MoveNodeInput} 的「同级改挂」）：物理移动到 `newParentPath` 下，
+ * 按新物理深度解析身份——深度 1-3 重写 `level`（降级重挂），深度 ≥4 剥离 `.node/` 身份变普通文件夹/文件。
+ */
+export interface RelocateNodeInput {
+  path: string;
+  newParentPath: string;
+}
+
 export interface UpdateNodeFieldsInput {
   path: string;
   templateLayer: TemplateLayer;

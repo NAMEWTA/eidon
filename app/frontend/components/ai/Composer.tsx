@@ -12,10 +12,11 @@
  *  - `$`            → 插入变量/上下文 token（$selection/$file/$date…）。
  * 菜单开启时 ↑/↓ 选择、Enter/Tab 确认、Esc 关闭；菜单关闭时 Enter 发送、Shift+Enter 换行。
  */
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { ModelInfo, ThinkingLevel } from '@shared/models';
 import { useI18n } from '../../i18n';
+import { useAiStore } from '../../stores/ai';
 import { PermissionModePill } from './PermissionModePill';
 
 export type ComposerTrigger = '@' | '/' | '$';
@@ -111,6 +112,29 @@ export function Composer({
   const [active, setActive] = useState<ActiveTrigger | null>(null);
   const [index, setIndex] = useState(0);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // 编辑器右键「加入 AI 对话」投递的文本：在光标处插入（用 store 持久量避免开面板时的挂载竞态）。
+  const pendingInsert = useAiStore((s) => s.pendingInsert);
+  useEffect(() => {
+    if (!pendingInsert) return;
+    const ta = taRef.current;
+    setText((cur) => {
+      const caret = ta?.selectionStart ?? cur.length;
+      const sep = cur && caret === cur.length && !/\s$/.test(cur) ? '\n' : '';
+      const insert = `${sep}${pendingInsert}`;
+      const next = cur.slice(0, caret) + insert + cur.slice(caret);
+      requestAnimationFrame(() => {
+        const el = taRef.current;
+        if (el) {
+          const pos = caret + insert.length;
+          el.focus();
+          el.setSelectionRange(pos, pos);
+        }
+      });
+      return next;
+    });
+    useAiStore.getState().setPendingInsert(null);
+  }, [pendingInsert]);
 
   const items = useMemo(
     () => (active ? resolveItems({ trigger: active.trigger, query: active.query }).slice(0, 8) : []),

@@ -1,0 +1,14 @@
+{
+  "dev_entry": "dev/H",
+  "current_phase": "2. Fix Regression",
+  "phase_history": ["1. Diagnose Loop"],
+  "change_status": "active",
+  "embedded_guides": ["diagnose"],
+  "feedback_loop": "trusted",
+  "hypothesis_status": "confirmed",
+  "regression_test": "added",
+  "debug_artifacts": [],
+  "verification": "auto green (typecheck/lint/test:core 136/test:ui 118/contracts 24/build); manual pnpm dev pending",
+  "source": "temp/bug/2026-06-23-使用问题.md",
+  "plan": "/Users/wta/.claude/plans/speculo-workflows-dev-h-diagnose-h-diag-witty-treehouse.md"
+}

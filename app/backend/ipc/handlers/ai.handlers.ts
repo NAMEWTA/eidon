@@ -67,6 +67,10 @@ export const aiHandlers: IpcHandlers = {
   "agents:delete": async ({ agentId }) => {
     await aiService.deleteAgent(agentId);
   },
+  "agents:setDefault": async ({ agentId }) => {
+    await aiService.setDefaultAgent(agentId);
+  },
+  "agents:getDefault": () => aiService.getDefaultAgent(),
 
   "tools:list": () => aiService.listTools(),
   "tools:setEnabled": async ({ name, enabled }) => {

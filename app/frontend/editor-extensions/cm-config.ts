@@ -34,7 +34,7 @@ import { buildEditorFontStack } from '../lib/persistence/settings';
 import type { Tab, Theme, EditorRender } from '../types';
 import type { CitationEntry } from '../lib/citations';
 import { richHighlightOnly } from './cm-live-preview';
-import { liveEditExtension } from './cm-live-render';
+import { liveEditExtension, liveEditHighlightStyle } from './cm-live-render';
 import { liveBlocksExtension, liveBlocksTheme, extractImageRoot } from './cm-live-blocks';
 import { dragAwareExtension } from './cm-drag-aware';
 import { imagePasteExtension } from './cm-image-paste';
@@ -210,7 +210,9 @@ export function fontSizeTheme(px: number, family: string): Extension {
     '.cm-activeLine': { backgroundColor: 'transparent' },
     '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--accent)' },
     '.cm-cursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
-    '.cm-selectionBackground, ::selection': { backgroundColor: 'rgba(255,159,64,0.25) !important' },
+    // 选中色加深以提高可辨识度（旧 0.25 过淡，框选 ` ` 等内联块时变化不明显）。
+    '.cm-selectionBackground, ::selection': { backgroundColor: 'rgba(255,159,64,0.42) !important' },
+    '&.cm-focused .cm-selectionBackground': { backgroundColor: 'rgba(255,159,64,0.42) !important' },
     '.cm-searchMatch': { backgroundColor: 'rgba(255,159,64,0.22)', borderRadius: '2px' },
     '.cm-searchMatch.cm-searchMatch-selected': {
       backgroundColor: 'var(--accent, #ff9f40)',
@@ -611,6 +613,8 @@ export function buildDiffEditorExtensions(opts: {
     EditorState.phrases.of(buildPhrases(s.language)),
     EditorState.phrases.of(buildMergePhrases(s.language)),
     searchPanelTheme,
+    // 先用 EIDON markdown 配色（--md-*/--syn-*），未覆盖的 tag 回退默认高亮（fallback）。
+    syntaxHighlighting(liveEditHighlightStyle),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
     lineNumberExt(s.showLineNumbers),
@@ -646,6 +650,8 @@ export function buildEditorExtensions(ctx: EditorBuildCtx): Extension[] {
     search({ top: true }),
     c.phrases.of(EditorState.phrases.of(buildPhrases(settings.language))),
     searchPanelTheme,
+    // 先用 EIDON markdown 配色（--md-*/--syn-*），未覆盖的 tag 回退默认高亮（fallback）。
+    syntaxHighlighting(liveEditHighlightStyle),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
     c.lineNum.of(lineNumberExt(settings.showLineNumbers)),

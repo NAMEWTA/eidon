@@ -208,6 +208,10 @@ export function AiPanel() {
     else store.setActiveAgent(null);
   }
 
+  // 「默认助手」解析名：设置里指定的 defaultAgentId（仍存在时）→ 否则首个 Agent。
+  const defaultAgent =
+    (store.defaultAgentId ? store.agents.find((a) => a.id === store.defaultAgentId) : null) ?? store.agents[0] ?? null;
+
   // 当前会话模型：用户选 > 会话态 > 该 Agent 默认 > 全局默认。
   const activeAgent = store.agents.find((a) => a.id === store.activeAgentId) ?? null;
   const displayModel = store.selectedModel ?? store.model ?? activeAgent?.model ?? store.defaultModel;
@@ -226,7 +230,7 @@ export function AiPanel() {
           onChange={(e) => onSelectTarget(e.target.value)}
           title="切换对话对象（Agent / 群聊频道）"
         >
-          <option value="">默认助手</option>
+          <option value="">{defaultAgent ? `默认助手（${defaultAgent.name}）` : '默认助手'}</option>
           {store.agents.length > 0 && (
             <optgroup label="Agent">
               {store.agents.map((a) => (

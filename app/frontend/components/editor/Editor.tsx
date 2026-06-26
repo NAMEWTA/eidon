@@ -9,10 +9,17 @@
  * StrictMode 双挂载：mount effect 的 cleanup 会 destroy view，再次 mount 重建——
  * CM 与 React 生命周期由此协调（计划风险区 ②）。
  */
-import { forwardRef, useImperativeHandle, useLayoutEffect, useEffect, useRef } from 'react';
+import { forwardRef, useImperativeHandle, useLayoutEffect, useEffect, useRef, useState } from 'react';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { writeText } from '@bridge/ipc/clipboard';
 import { cmThemeFor } from '../../lib/themes';
+import { useWorkspaceStore } from '../../stores/workspace';
+import { useAiStore } from '../../stores/ai';
+import { useToastsStore } from '../../stores/toasts';
+import { expandSnippet } from '../../lib/slash-blocks';
+import { formatPathWithLineRange, relativeToWorkspace } from '../../lib/eidon-paths';
+import { EditorContextMenu, type EditorMenuAction } from './EditorContextMenu';
 import { vim } from '@replit/codemirror-vim';
 import { lineNumbers } from '@codemirror/view';
 import { focusModeExtension, typewriterModeExtension } from '../../editor-extensions/cm-focus-mode';
@@ -94,6 +101,64 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
   // 当前 tab/flags 的 ref，供 handler 闭包读取最新值。
   const tabRef = useRef(tab);
   tabRef.current = tab;
+
+  // 右键浮层菜单（划线/加粗/倾斜 + 加入 AI + 复制路径行号）。
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null);
+
+  /** 从当前选区算出 1 基的行/列范围（col 为行内字符序号）。 */
+  function selectionRange(view: EditorView) {
+    const sel = view.state.selection.main;
+    const fromLine = view.state.doc.lineAt(sel.from);
+    const toLine = view.state.doc.lineAt(sel.to);
+    return {
+      sel,
+      range: {
+        fromLine: fromLine.number,
+        toLine: toLine.number,
+        fromCol: sel.from - fromLine.from + 1,
+        toCol: sel.to - toLine.from + 1,
+      },
+    };
+  }
+
+  function runMenuAction(action: EditorMenuAction) {
+    const view = viewRef.current;
+    if (!view) return;
+    const { sel, range } = selectionRange(view);
+
+    if (action.type === 'format') {
+      const snippet =
+        action.mark === 'bold' ? '**${selection}**' : action.mark === 'italic' ? '*${selection}*' : '~~${selection}~~';
+      const { text, cursorOffset } = expandSnippet(snippet, view.state.sliceDoc(sel.from, sel.to));
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: text },
+        selection: { anchor: sel.from + cursorOffset },
+      });
+      view.focus();
+      return;
+    }
+
+    const filePath = tabRef.current.filePath ?? null;
+    const workspace = useWorkspaceStore.getState().currentFolder;
+    const relPath = filePath && workspace ? relativeToWorkspace(workspace, filePath) ?? tabRef.current.fileName : tabRef.current.fileName;
+
+    if (action.type === 'copyPath') {
+      const base = action.scope === 'abs' ? filePath ?? tabRef.current.fileName : relPath;
+      const ref = '`' + formatPathWithLineRange(base, range) + '`';
+      void writeText(ref)
+        .then(() => useToastsStore.getState().success(t('editorMenu.copied')))
+        .catch((error) => useToastsStore.getState().error(String(error)));
+      return;
+    }
+
+    // addToAi：文本 = 选中原文；引用 = `相对路径:行(列-列)`。打开 AI 抽屉并投递到输入框。
+    const payload =
+      action.mode === 'text' ? view.state.sliceDoc(sel.from, sel.to) : '`' + formatPathWithLineRange(relPath, range) + '`';
+    if (!payload) return;
+    useSettingsStore.getState().setRightPanelView('ai');
+    useAiStore.getState().setPendingInsert(payload);
+    useToastsStore.getState().success(t('editorMenu.addedToAi'));
+  }
 
   function makeHandlers(): EditorHandlers {
     return {
@@ -340,5 +405,27 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
     },
   }));
 
-  return <div className={`cm-host${theme === 'dark' ? ' cm-host--dark' : ''}`} ref={hostRef} />;
+  return (
+    <>
+      <div
+        className={`cm-host${theme === 'dark' ? ' cm-host--dark' : ''}`}
+        ref={hostRef}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          const view = viewRef.current;
+          const hasSelection = view ? !view.state.selection.main.empty : false;
+          setCtxMenu({ x: event.clientX, y: event.clientY, hasSelection });
+        }}
+      />
+      {ctxMenu && (
+        <EditorContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          hasSelection={ctxMenu.hasSelection}
+          onAction={runMenuAction}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
+    </>
+  );
 });

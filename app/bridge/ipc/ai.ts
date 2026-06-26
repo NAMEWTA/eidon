@@ -107,6 +107,10 @@ export const aiBridge = {
     eidonInvoke("agents:update", { agentId, patch }),
   deleteAgent: (agentId: string): Promise<void> =>
     eidonInvoke("agents:delete", { agentId }),
+  setDefaultAgent: (agentId: string | null): Promise<void> =>
+    eidonInvoke("agents:setDefault", { agentId }),
+  getDefaultAgent: (): Promise<string | null> =>
+    eidonInvoke("agents:getDefault", {}),
 
   // tools
   listTools: (): Promise<ToolInfo[]> => eidonInvoke("tools:list", {}),

@@ -197,7 +197,13 @@ export function PaneTabBar({ paneId, activeTabId }: { paneId: string; activeTabI
     };
   })();
 
-  const multiPane = useTilesStore.getState().allLeaves().length > 1;
+  // root 为 branch ⟺ ≥2 个窗格（响应式：分屏/关闭后即时显隐「关闭分栏」）。
+  const multiPane = useTilesStore((s) => s.root.type === 'branch');
+
+  // 分屏：基于当前窗格分出一个**空白**编辑区（传空串 activeTabId，不复制源标签）。
+  const splitEmpty = (direction: SplitDirection) => {
+    useTilesStore.getState().splitPane(paneId, direction, '');
+  };
 
   return (
     <div className="pane-tabbar">
@@ -248,9 +254,27 @@ export function PaneTabBar({ paneId, activeTabId }: { paneId: string; activeTabI
           </div>
         ))}
       </div>
-      <button className="tabbar__new" onClick={() => files.newFile()} title={t('tabs.newTab')}>
-        +
-      </button>
+      <div className="tabbar__actions">
+        <button className="tabbar__new" onClick={() => files.newFile()} title={t('tabs.newTab')}>
+          +
+        </button>
+        <button className="tabbar__act" onClick={() => splitEmpty('horizontal')} title={t('tabs.splitRight')} aria-label={t('tabMenu.splitRight')}>
+          <Icon name="view-split" size={14} />
+        </button>
+        <button className="tabbar__act" onClick={() => splitEmpty('vertical')} title={t('tabs.splitDown')} aria-label={t('tabMenu.splitDown')}>
+          <Icon name="split-rows" size={14} />
+        </button>
+        {multiPane && (
+          <button
+            className="tabbar__act"
+            onClick={() => useTilesStore.getState().closePane(paneId)}
+            title={t('tabs.closePane')}
+            aria-label={t('tabMenu.closePane')}
+          >
+            <Icon name="close" size={14} />
+          </button>
+        )}
+      </div>
 
       {ctxMenu &&
         createPortal(
@@ -266,11 +290,11 @@ export function PaneTabBar({ paneId, activeTabId }: { paneId: string; activeTabI
             <div className="ctx-sep" />
             <button className="ctx-item" disabled={!ctxFlags?.hasFilePath} onClick={() => onTabAction('revealInFolder')}>{t('tabMenu.revealInFolder')}</button>
             <div className="ctx-sep" />
-            <button className="ctx-item" onClick={() => { useTilesStore.getState().splitPane(paneId, 'horizontal'); setCtxMenu(null); }}>Split Right</button>
-            <button className="ctx-item" onClick={() => { useTilesStore.getState().splitPane(paneId, 'vertical'); setCtxMenu(null); }}>Split Down</button>
+            <button className="ctx-item" onClick={() => { splitEmpty('horizontal'); setCtxMenu(null); }}>{t('tabMenu.splitRight')}</button>
+            <button className="ctx-item" onClick={() => { splitEmpty('vertical'); setCtxMenu(null); }}>{t('tabMenu.splitDown')}</button>
             {multiPane && <div className="ctx-sep" />}
             {multiPane && (
-              <button className="ctx-item" onClick={() => { useTilesStore.getState().closePane(paneId); setCtxMenu(null); }}>Close Pane</button>
+              <button className="ctx-item" onClick={() => { useTilesStore.getState().closePane(paneId); setCtxMenu(null); }}>{t('tabMenu.closePane')}</button>
             )}
           </div>,
           document.body,

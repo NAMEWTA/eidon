@@ -46,6 +46,9 @@ import { AiPanel } from './components/ai/AiPanel';
 import { AboutDialog } from './components/dialogs/AboutDialog';
 import { UnsavedDialog } from './components/dialogs/UnsavedDialog';
 import { FileChangedDialog } from './components/dialogs/FileChangedDialog';
+import { NewMarkdownDialog } from './components/dialogs/NewMarkdownDialog';
+import { createMarkdownAt } from './hooks/useFiles';
+import { nowISO } from './lib/frontmatter';
 import { Toast } from './components/shared/Toast';
 import { useTabsStore } from './stores/tabs';
 import { useSettingsStore } from './stores/settings';
@@ -104,6 +107,21 @@ export function App() {
   const [fileChangedOpen, setFileChangedOpen] = useState(false);
   const [fileChangedFileName, setFileChangedFileName] = useState('');
   const fileChangedResolveRef = useRef<((action: 'reload' | 'overwrite' | 'cancel') => void) | null>(null);
+
+  // 「新建 Markdown」统一名称框（顶栏 / 资源管理器经 `eidon:new-markdown` 事件触发）。
+  const [newMdOpen, setNewMdOpen] = useState(false);
+  const [newMdName, setNewMdName] = useState('');
+  const newMdParentRef = useRef<string | null>(null);
+  useEffect(() => {
+    const onNewMarkdown = (event: Event) => {
+      const parentPath = (event as CustomEvent<{ parentPath?: string }>).detail?.parentPath ?? null;
+      newMdParentRef.current = parentPath;
+      setNewMdName(`${nowISO().slice(0, 10)}-.md`);
+      setNewMdOpen(true);
+    };
+    window.addEventListener('eidon:new-markdown', onNewMarkdown as EventListener);
+    return () => window.removeEventListener('eidon:new-markdown', onNewMarkdown as EventListener);
+  }, []);
 
   // ---- 未保存 / 文件变更对话框：稳定回调（供 useFiles/useFileWatcher 用）----
   const showUnsavedDialog = useCallback(
@@ -755,6 +773,15 @@ export function App() {
         onCancel={() => onUnsavedAction('cancel')}
       />
       <SessionRestoreDialog />
+      <NewMarkdownDialog
+        open={newMdOpen}
+        defaultName={newMdName}
+        onConfirm={(name) => {
+          setNewMdOpen(false);
+          void createMarkdownAt(newMdParentRef.current, name);
+        }}
+        onClose={() => setNewMdOpen(false)}
+      />
       <FileChangedDialog
         open={fileChangedOpen}
         fileName={fileChangedFileName}

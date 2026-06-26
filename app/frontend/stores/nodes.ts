@@ -8,6 +8,7 @@ import type {
   NodeMutationResult,
   NodeTree,
   PromoteFolderInput,
+  RelocateNodeInput,
   RenameNodeInput,
   ScannedNode,
   UpdateNodeFieldsInput,
@@ -29,6 +30,7 @@ interface NodesActions {
   promote(input: PromoteFolderInput, workspace?: string | null): Promise<NodeMutationResult>;
   rename(input: RenameNodeInput, workspace?: string | null): Promise<NodeMutationResult>;
   move(input: MoveNodeInput, workspace?: string | null): Promise<NodeMutationResult>;
+  relocate(input: RelocateNodeInput, workspace?: string | null): Promise<{ path: string; strippedIdentity: boolean }>;
   updateFields(input: UpdateNodeFieldsInput, workspace?: string | null): Promise<NodeMutationResult>;
   upgradeSchema(input: UpgradeNodeSchemaInput, workspace?: string | null): Promise<NodeMutationResult>;
   ensureDefaultInbox(workspace?: string | null): Promise<string>;
@@ -101,6 +103,13 @@ export const useNodesStore = create<NodesState & NodesActions>()((set, get) => (
   async move(input, workspace) {
     const root = resolveWorkspace(workspace);
     const result = await nodesBridge.move(root, input);
+    await get().scan(root);
+    return result;
+  },
+
+  async relocate(input, workspace) {
+    const root = resolveWorkspace(workspace);
+    const result = await nodesBridge.relocate(root, input);
     await get().scan(root);
     return result;
   },

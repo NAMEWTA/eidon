@@ -11,6 +11,7 @@ export const nodesHandlers: IpcHandlers = {
   "nodes:promote": ({ workspace, ...input }) => nodeService.promote(workspace, input),
   "nodes:rename": ({ workspace, ...input }) => nodeService.rename(workspace, input),
   "nodes:move": ({ workspace, ...input }) => nodeService.move(workspace, input),
+  "nodes:relocate": ({ workspace, ...input }) => nodeService.relocate(workspace, input),
   "nodes:updateFields": ({ workspace, ...input }) => nodeService.updateFields(workspace, input),
   "nodes:upgradeSchema": ({ workspace, ...input }) => nodeService.upgradeSchema(workspace, input),
   "nodes:ensureInbox": ({ workspace }) => nodeService.ensureInbox(workspace),

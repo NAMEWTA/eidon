@@ -15,6 +15,7 @@ export {
   listNodesUsingTemplate,
   moveNode,
   promoteFolderToNode,
+  relocateNode,
   renameNode,
   scanWorkspace,
   updateNodeFields,

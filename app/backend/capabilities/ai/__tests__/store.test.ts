@@ -73,6 +73,7 @@ describe("providers-store", () => {
     await writeProviders({
       version: 1,
       defaultModel: { provider: "anthropic", id: "claude-sonnet-4-6" },
+      defaultAgentId: null,
       providers: { anthropic: { enabled: true, baseUrl: null, api: null, headers: {}, models: {} } },
     });
     const back = await readProviders();

@@ -7,6 +7,7 @@ import type {
   MoveNodeInput,
   NodeMutationResult,
   PromoteFolderInput,
+  RelocateNodeInput,
   RenameNodeInput,
   ScannedNode,
   UpdateNodeFieldsInput,
@@ -24,6 +25,8 @@ export const nodesBridge = {
     eidonInvoke("nodes:rename", { workspace, ...input }),
   move: (workspace: string, input: MoveNodeInput): Promise<NodeMutationResult> =>
     eidonInvoke("nodes:move", { workspace, ...input }),
+  relocate: (workspace: string, input: RelocateNodeInput): Promise<{ path: string; strippedIdentity: boolean }> =>
+    eidonInvoke("nodes:relocate", { workspace, ...input }),
   updateFields: (workspace: string, input: UpdateNodeFieldsInput): Promise<NodeMutationResult> =>
     eidonInvoke("nodes:updateFields", { workspace, ...input }),
   upgradeSchema: (workspace: string, input: UpgradeNodeSchemaInput): Promise<NodeMutationResult> =>

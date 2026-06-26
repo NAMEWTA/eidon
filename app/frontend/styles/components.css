@@ -649,6 +649,8 @@ body.rs-splitter--dragging .rs-splitter {
 .drop-zone--top { top: 0; left: 0; right: 0; height: 50px; border-bottom: 2px solid var(--accent); }
 .drop-zone--bottom { bottom: 0; left: 0; right: 0; height: 50px; border-top: 2px solid var(--accent); }
 .pane-content { flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; }
+/* 空白编辑区（分屏新建、尚无激活标签）提示 */
+.pane-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; font-size: 13px; color: var(--text-faint); }
 .pane { flex: 1; min-width: 0; height: 100%; }
 .pane--editor + .pane--preview { border-left: 1px solid var(--border); }
 .asset-preview {
@@ -785,6 +787,10 @@ body.rs-splitter--dragging .rs-splitter {
 .pane-tabbar .tab--active .tab__close { opacity: 1; }
 .pane-tabbar .tab__close:hover { color: var(--text); background: var(--bg-active); }
 .pane-tabbar .tabbar__new { width: 32px; padding: 0; font-size: 16px; color: var(--text-muted); border: none; background: transparent; cursor: pointer; }
+/* 标签栏右侧操作组：新建标签「+」+ 向右/向下分栏 + 关闭分栏 */
+.pane-tabbar .tabbar__actions { display: flex; align-items: stretch; flex-shrink: 0; }
+.pane-tabbar .tabbar__act { width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); border: none; background: transparent; cursor: pointer; }
+.pane-tabbar .tabbar__act:hover, .pane-tabbar .tabbar__new:hover { color: var(--text); background: var(--bg-hover); }
 .ctx-menu {
   position: fixed;
   z-index: 9999;
@@ -2437,6 +2443,11 @@ body.rs-splitter--dragging .rs-splitter {
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
+/* Cmd/Ctrl 多选高亮（比单选 active 略浅，区分主选与批选） */
+.ftree__item--selected {
+  background: color-mix(in oklab, var(--accent) 12%, var(--bg));
+  color: var(--accent-ink);
+}
 .ftree__item--drop-target {
   background: var(--accent-soft);
   outline: 1px dashed var(--accent);
@@ -2783,9 +2794,39 @@ body.rs-splitter--dragging .rs-splitter {
   font: inherit;
   min-width: 0;
 }
-.ftree__move-item:hover {
+.ftree__move-item:hover:not(:disabled) {
   background: var(--accent-soft);
   color: var(--accent-ink);
+}
+/* 树形 picker 行：折叠箭头 + 落点按钮 */
+.ftree__move-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ftree__move-twisty {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.ftree__move-twisty:disabled {
+  cursor: default;
+  opacity: 0;
+}
+/* 非落点的层级分组（L1/L2 等）：仅展开用，弱化且不可点 */
+.ftree__move-item--group {
+  cursor: default;
+  color: var(--text-muted);
+}
+.ftree__move-item:disabled {
+  cursor: default;
 }
 .ftree__move-item-icon {
   flex: 0 0 auto;

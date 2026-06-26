@@ -99,3 +99,26 @@ export function validateEidonWorkspaceContentPath(
     reason: "Content files in an EIDON workspace must live inside an L3 node or a free folder below it.",
   };
 }
+
+/** 选区行/字符范围（行/列均 1 基；col 为行内字符序号）。 */
+export interface SelectionRange {
+  fromLine: number;
+  toLine: number;
+  fromCol: number;
+  toCol: number;
+}
+
+/**
+ * 把「路径 + 选区范围」格式化为可粘贴的引用串（不含反引号；调用方按需包裹）：
+ *  - 单行有选区：`path:57(25-104)`（行号 + 行内字符范围）
+ *  - 单行无选区（仅光标）：`path:57`
+ *  - 跨行选区：`path:57-98`（起止行号）
+ * 编辑器右键「复制相对/绝对路径 + 行号」与「加入 AI 对话（相对引用）」共用。
+ */
+export function formatPathWithLineRange(path: string, range: SelectionRange): string {
+  if (range.fromLine === range.toLine) {
+    if (range.fromCol === range.toCol) return `${path}:${range.fromLine}`;
+    return `${path}:${range.fromLine}(${range.fromCol}-${range.toCol})`;
+  }
+  return `${path}:${range.fromLine}-${range.toLine}`;
+}

@@ -37,6 +37,23 @@ type PiThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh";
 const toPiThinkingLevel = (level: ThinkingLevel): PiThinkingLevel | undefined =>
   level === "off" ? undefined : level;
 
+/**
+ * 计算传给 pi `createAgentSession` 的 `tools` 白名单。
+ *
+ * **关键**：pi 的 `tools` 是「允许名单」，且 `AgentSession` 的 `isAllowedTool` 会用它**连带过滤
+ * customTools**（见 pi-coding-agent `agent-session` 的 `_refreshToolRegistry`）。因此凡经 `customTools`
+ * 注入的门控工具（edit/write/bash/notify/subagent/search_kb/read_node）其名字必须一并出现在白名单里，
+ * 否则会被 SDK 静默剔除——模型最终只看见信息内置工具（read/grep/find/ls）。
+ *
+ * 注册顺序上 customTool 后于内置注册、同名覆盖，故把 edit/write/bash 名放进白名单仍由门控版生效（非裸内置）。
+ */
+export function mergeSdkAllowedTools(
+  infoToolNames: readonly string[],
+  customTools: readonly { name: string }[] | undefined,
+): string[] {
+  return [...new Set([...infoToolNames, ...(customTools ?? []).map((t) => t.name)])];
+}
+
 /** 工具调用增量结果转字符串（截断保护，避免单条事件过大）。 */
 const stringifyChunk = (value: unknown): string => {
   if (typeof value === "string") return value.slice(0, 4000);
@@ -301,7 +318,8 @@ export class AiSession {
       thinkingLevel: toPiThinkingLevel(params.thinkingLevel),
       sessionManager,
       resourceLoader,
-      tools: params.toolNames,
+      // 白名单须并入 customTool 名，否则 pi 会连带剔除门控注入的 edit/write/bash 等（见 mergeSdkAllowedTools）。
+      tools: mergeSdkAllowedTools(params.toolNames, params.customTools),
       customTools: params.customTools,
     });
 

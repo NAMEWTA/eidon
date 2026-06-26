@@ -4,9 +4,26 @@ import {
   canCreateContentInScannedL3,
   canWriteContentFileInEidonWorkspace,
   canWriteContentFileInScannedL3,
+  formatPathWithLineRange,
   relativeToWorkspace,
   validateEidonWorkspaceContentPath,
 } from '../eidon-paths';
+
+describe('formatPathWithLineRange', () => {
+  it('formats a single-line selection with char range', () => {
+    expect(formatPathWithLineRange('README.md', { fromLine: 57, toLine: 57, fromCol: 25, toCol: 104 })).toBe(
+      'README.md:57(25-104)',
+    );
+  });
+  it('formats a multi-line selection as a line range', () => {
+    expect(formatPathWithLineRange('README.md', { fromLine: 57, toLine: 98, fromCol: 1, toCol: 4 })).toBe(
+      'README.md:57-98',
+    );
+  });
+  it('formats a caret (no selection) as just the line', () => {
+    expect(formatPathWithLineRange('a/b.md', { fromLine: 3, toLine: 3, fromCol: 5, toCol: 5 })).toBe('a/b.md:3');
+  });
+});
 
 describe('EIDON workspace content paths', () => {
   it('computes workspace-relative paths across separators', () => {

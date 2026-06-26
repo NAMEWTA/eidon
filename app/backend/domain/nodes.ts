@@ -23,6 +23,7 @@ import type {
   NodeStore,
   NodeTree,
   PromoteFolderInput,
+  RelocateNodeInput,
   RenameNodeInput,
   ScannedNode,
   UpdateNodeFieldsInput,
@@ -426,6 +427,59 @@ export const moveNode = async (
   if (await store.exists(target)) throw new Error(`target already exists: ${target}`);
   await store.rename(path, target);
   return { node, path: target, depth: node.level };
+};
+
+/** 可剥离 `.node/` 身份的 store（生产 WorkspaceStore 经 TemplateStore 已含 `remove`；测试需补该方法）。 */
+export type RelocatableStore = NodeStore & { remove(relPath: string): Promise<void> };
+
+/**
+ * 递归按「新物理深度」解析子树身份（relocate 后调用）：
+ *  - 结构节点落到深度 ≥4（跌破 L3 边界）→ 删除 `.node/` 变普通文件夹（满足「L3→普通文件」）。
+ *  - 结构节点仍在深度 1-3 但 `level` 与新深度不符 → 重写 `level`（id/templateId/字段保留；模板层不符交由一致性整改）。
+ */
+const resolveSubtreeIdentity = async (store: RelocatableStore, dirPath: string): Promise<void> => {
+  const path = normalizePath(dirPath);
+  const depth = pathDepth(path);
+  const node = await tryReadNode(store, path);
+  if (node) {
+    if (depth > MAX_NODE_DEPTH) {
+      await store.remove(joinPath(path, ".node"));
+    } else if (node.level !== depth) {
+      const relevelled = NodeSchema.parse({ ...node, level: depth as Level });
+      await store.writeFile(joinPath(path, ".node/node.json"), JSON.stringify(relevelled, null, 2));
+    }
+  }
+  const entries = await store.listDir(path);
+  for (const entry of entries) {
+    if (!entry.isDir || entry.name.startsWith(".")) continue;
+    await resolveSubtreeIdentity(store, joinPath(path, entry.name));
+  }
+};
+
+/**
+ * 降级/重定位节点（向下移动 + 身份解析）：把节点目录移到 `newParentPath` 下，再按新物理深度
+ * 解析整棵子树的身份（见 {@link resolveSubtreeIdentity}）。区别于 {@link moveNode} 的同级改挂铁律——
+ * 这是用户显式触发的降级（ADR-0013/0016）：可把 L1/L2/L3 移成更深节点、或把 L3 降为普通文件夹。
+ */
+export const relocateNode = async (
+  store: RelocatableStore,
+  input: RelocateNodeInput,
+): Promise<{ path: string; strippedIdentity: boolean }> => {
+  const path = normalizePath(input.path);
+  const newParentPath = normalizePath(input.newParentPath);
+  await readNode(store, path); // 确认源是结构节点
+  if (newParentPath === path || newParentPath.startsWith(`${path}/`)) {
+    throw new Error("cannot relocate a node inside itself");
+  }
+  if (newParentPath !== "" && !(await store.exists(newParentPath))) {
+    throw new Error(`target parent does not exist: ${newParentPath}`);
+  }
+  const target = joinPath(newParentPath, basenameOf(path));
+  if (target === path) return { path, strippedIdentity: false };
+  if (await store.exists(target)) throw new Error(`target already exists: ${target}`);
+  await store.rename(path, target);
+  await resolveSubtreeIdentity(store, target);
+  return { path: target, strippedIdentity: pathDepth(target) > MAX_NODE_DEPTH };
 };
 
 /** 按节点所绑定的模板版本写扩展字段；未知字段或类型不符会在写盘前拒绝。 */

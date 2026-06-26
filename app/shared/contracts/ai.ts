@@ -151,6 +151,8 @@ export const ProvidersFileSchema = z.object({
   version: z.literal(1),
   /** 新建 Agent / Agent 未指定模型时的回退模型。 */
   defaultModel: ModelRefSchema.nullable().default(null),
+  /** 默认助手 id；对话未显式选 Agent 时使用。`null` = 回退首个 Agent。 */
+  defaultAgentId: z.string().nullable().default(null),
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
 });
 export type ProvidersFile = z.infer<typeof ProvidersFileSchema>;

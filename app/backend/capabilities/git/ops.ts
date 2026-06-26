@@ -4,6 +4,7 @@
  * status / init / autoCommit / dirty / 分支增删切换。全部经 isomorphic-git，纯 JS 不依赖系统 git。
  */
 import { promises as fs } from "node:fs";
+import fsSync from "node:fs";
 import path from "node:path";
 import type { WorkspaceStatus } from "@shared/models";
 import {
@@ -118,8 +119,29 @@ export async function autoCommit(
   let pathspec: string | null = null;
   if (filePath) {
     const rel = relPath(folder, filePath);
-    if (rel === null) throw new Error(`file is outside workspace: ${filePath}`);
-    pathspec = rel;
+    if (rel === null) {
+      let canonFolder: string | undefined;
+      let canonParent: string | undefined;
+      try {
+        canonFolder = fsSync.realpathSync(folder);
+      } catch {
+        canonFolder = undefined;
+      }
+      try {
+        canonParent = fsSync.realpathSync(path.dirname(filePath));
+      } catch {
+        canonParent = undefined;
+      }
+      console.warn("[git:autoCommit] file is outside workspace snapshot root; falling back to full workspace stage", {
+        folder,
+        filePath,
+        canonFolder,
+        canonParent,
+      });
+      pathspec = null;
+    } else {
+      pathspec = rel;
+    }
   }
   await stage(folder, pathspec);
   const sig = await buildSignature(folder);

@@ -145,6 +145,11 @@ export function AgentTab() {
   const cfg = detail?.config;
   const disabledTools = new Set(cfg?.tools.disabled ?? []);
   const enabledSkills = new Set(cfg?.skills.enabled ?? []);
+  // 解析「实际默认助手」：显式 defaultAgentId（仍存在时）→ 否则首个 Agent。用于卡片角标。
+  const resolvedDefaultId =
+    store.defaultAgentId && store.agents.some((a) => a.id === store.defaultAgentId)
+      ? store.defaultAgentId
+      : store.agents[0]?.id ?? null;
 
   return (
     <div>
@@ -156,6 +161,9 @@ export function AgentTab() {
               {a.avatar ? <img src={a.avatar} alt="" /> : a.name.slice(0, 1)}
             </div>
             <span className="agent-card__name">{a.name}</span>
+            {resolvedDefaultId === a.id && (
+              <span className="agent-card__name" style={{ fontSize: 10, color: 'var(--accent)' }}>默认</span>
+            )}
           </button>
         ))}
         <button className="agent-card agent-card--add" onClick={() => void createAgent()} title="新建助手">
@@ -184,6 +192,16 @@ export function AgentTab() {
                 </div></div>
               </div>
             </div>
+            <SettingsRow
+              label="设为默认助手"
+              hint="对话面板的「默认助手」将解析到此助手（未显式选 Agent 时使用）。"
+              control={
+                <Toggle
+                  on={store.defaultAgentId === cfg.id}
+                  onChange={(on) => void store.setDefaultAgent(on ? cfg.id : null)}
+                />
+              }
+            />
           </SettingsSection>
 
           {/* 身份简介 + 意识 */}

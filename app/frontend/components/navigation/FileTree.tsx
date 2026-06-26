@@ -18,6 +18,7 @@ import { useTemplatesStore } from '../../stores/templates';
 import { useSettingsStore } from '../../stores/settings';
 import { useI18n } from '../../i18n';
 import { canCreateContentInScannedL3, findEnclosingL3Path } from '../../lib/eidon-paths';
+import { nowISO, initialMarkdownContent } from '../../lib/frontmatter';
 import {
   canDragFileTreeEntry,
   canDropIntoFileTreeEntry,
@@ -29,6 +30,7 @@ import {
 import { deriveTemplateVisual, templateDisplayName, type TemplateVisualIdentity } from '../../lib/template-visuals';
 import { NodeCreateDialog } from '../dialogs/NodeCreateDialog';
 import { TodoCreateDialog } from '../dialogs/TodoCreateDialog';
+import { NodeTreePicker } from './NodeTreePicker';
 
 /** react-arborist 内部 TreeProvider 无条件创建 DndProvider(HTML5Backend)，即使设置
  *  disableDrag/disableDrop 也照建不误。快速卸载→重挂时旧后端异步清理与新后端创建竞态，
@@ -209,6 +211,9 @@ function ExplorerNode({
   onDropIntoDir,
   onContextMenu,
   isExplicitDropTarget,
+  isMultiSelected,
+  onToggleMultiSelect,
+  onClearMultiSelect,
 }: NodeRendererProps<ExplorerEntry> & {
   getStructureNode: (entry: ExplorerEntry) => ScannedNode | null;
   getTemplateVisual: (node: ScannedNode) => TemplateVisualIdentity;
@@ -217,6 +222,9 @@ function ExplorerNode({
   onOpenFile: (entry: ExplorerEntry) => void;
   onSelectStructureNode: (node: ScannedNode | null) => void;
   onToggleDir: (node: NodeApi<ExplorerEntry>) => void;
+  isMultiSelected: (entry: ExplorerEntry) => boolean;
+  onToggleMultiSelect: (node: NodeApi<ExplorerEntry>) => void;
+  onClearMultiSelect: () => void;
   onDragStartEntries: (nodes: NodeApi<ExplorerEntry>[]) => void;
   onDragEndEntries: () => void;
   onDragEnterDir: (node: NodeApi<ExplorerEntry>) => void;
@@ -248,6 +256,7 @@ function ExplorerNode({
         'ftree__item',
         node.data.isDir ? 'ftree__item--dir' : 'ftree__item--file',
         node.isSelected ? 'ftree__item--active' : '',
+        isMultiSelected(node.data) ? 'ftree__item--selected' : '',
         structureNode ? 'ftree__item--node' : '',
         violations.length > 0 ? 'ftree__item--violation' : '',
         isExplicitDropTarget(node.data) ? 'ftree__item--drop-target' : '',
@@ -258,6 +267,12 @@ function ExplorerNode({
       draggable={!node.isEditing && canDragEntry(node.data)}
       onClick={(event) => {
         event.stopPropagation();
+        // Cmd/Ctrl + 点击 = 多选切换（不打开/不展开）；普通点击清空多选并执行打开/展开。
+        if (event.metaKey || event.ctrlKey) {
+          onToggleMultiSelect(node);
+          return;
+        }
+        onClearMultiSelect();
         node.select();
         onSelectStructureNode(structureNode);
         if (node.data.isDir) onToggleDir(node);
@@ -350,13 +365,14 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
   const templates = useTemplatesStore((state) => state.templates);
   const showHiddenFiles = useSettingsStore((state) => state.showHiddenFiles);
 
-  const [rootName, setRootName] = useState('');
   const [treeData, setTreeData] = useState<ExplorerEntry[]>([]);
   const [rootLoading, setRootLoading] = useState(false);
   const [rootTruncated, setRootTruncated] = useState(false);
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [selection, setSelection] = useState<string | undefined>(undefined);
+  // Cmd/Ctrl + 点击的多选集合（id=绝对路径）；用于批量拖拽/移动。普通单击清空。
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [violationsByPath, setViolationsByPath] = useState<Map<string, StructureViolation[]>>(new Map());
   const [treeHeight, setTreeHeight] = useState(320);
   const [nodeDialog, setNodeDialog] = useState<NodeDialogState | null>(null);
@@ -565,13 +581,11 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     const showLoading = options.showLoading ?? true;
     const path = useWorkspaceStore.getState().currentFolder;
     if (!path) {
-      setRootName('');
       setTreeData([]);
       setViolationsByPath(new Map());
       setRootLoading(false);
       return;
     }
-    setRootName(path.split(/[\\/]/).filter(Boolean).pop() ?? path);
     if (showLoading) setRootLoading(true);
     const [{ children, truncated }] = await Promise.all([
       loadDir(path),
@@ -618,55 +632,58 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     flushPendingTreeOpen();
   }
 
-  /** 展开并加载目标路径的全部祖先目录，供「定位当前文件」使用。 */
-  async function ensureAncestorsOpenForPath(absPath: string) {
-    const root = useWorkspaceStore.getState().currentFolder;
-    if (!root || !isInsideWorkspace(absPath)) return;
-
-    const rel = absPath.startsWith(root)
-      ? absPath.slice(root.length).replace(/^[\\/]+/, '')
-      : absPath;
+  /** 求目标文件的全部祖先目录绝对路径（不含文件自身），shallow→deep。 */
+  function ancestorDirsOf(absPath: string, root: string): string[] {
+    const rel = absPath.startsWith(root) ? absPath.slice(root.length).replace(/^[\\/]+/, '') : absPath;
     const sep = root.includes('\\') ? '\\' : '/';
     const parts = rel.split(/[\\/]/).filter(Boolean);
-    if (parts.length <= 1) return;
-
+    const out: string[] = [];
     let acc = root;
     for (let pi = 0; pi < parts.length - 1; pi++) {
       acc = acc + (acc.endsWith(sep) ? '' : sep) + parts[pi];
-      scheduleTreeOpen(acc);
-      const loaded = await loadDir(acc);
-      if (useWorkspaceStore.getState().currentFolder !== root) return;
-      const children = await loadOpenDescendants(loaded.children, openIdsRef.current);
-      if (normalizedAbs(acc) === normalizedAbs(root)) {
-        setTreeData(children);
-        setRootTruncated(loaded.truncated);
-      } else {
-        setTreeData((current) =>
-          updateEntry(current, acc, (entry) => ({
-            ...entry,
-            children,
-            loaded: true,
-            truncated: loaded.truncated,
-          })),
-        );
-      }
+      out.push(acc);
     }
-    for (const id of openIdsRef.current) pendingOpenIds.current.add(id);
-    flushPendingTreeOpen();
+    return out;
   }
 
+  /**
+   * 「在文件树中定位当前文件」：展开全部祖先目录并滚动选中目标。
+   *
+   * 修复 BUG1（树行渲染重叠）：旧实现按祖先**逐个** setTreeData + 与滞后的 openIdsRef、命令式
+   * arborist.open() 交错、外加冗余的双 scrollTo，导致 react-arborist 虚拟列表行 top 错位、行相互重叠。
+   * 现改为**单一真相源 + 单次提交**：合并 open 集合 → 从根一次性 loadOpenDescendants → 单次 setTreeData/
+   * setOpenIds（并同步 openIdsRef）→ React commit 后再统一 open + 单次 select/scroll。
+   */
   async function revealActiveFileInTree() {
     const activePath = useTabsStore.getState().activeTab()?.filePath;
-    if (!activePath || !currentFolder) return;
-    await ensureAncestorsOpenForPath(activePath);
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-    });
+    const root = useWorkspaceStore.getState().currentFolder;
+    if (!activePath || !root || !isInsideWorkspace(activePath)) return;
+
+    // reveal 期间抑制 index-updated 触发的并发刷新，避免重复行/中途插入打乱布局。
+    suppressIndexRefreshUntil.current = Date.now() + 1500;
+
+    // 1) 合并 open 集合（现有 ∪ 目标祖先）。
+    const merged = new Set(openIdsRef.current);
+    for (const dir of ancestorDirsOf(activePath, root)) merged.add(dir);
+
+    // 2) 从根一次性加载，把全部 open 后代落入一棵干净的新树（无重复 id）。
+    const { children, truncated } = await loadDir(root);
+    if (useWorkspaceStore.getState().currentFolder !== root) return;
+    const tree = await loadOpenDescendants(children, merged);
+    if (useWorkspaceStore.getState().currentFolder !== root) return;
+
+    // 3) 单次提交：data + openIds（同步 ref，供后续读取不滞后）。
+    openIdsRef.current = merged;
+    setOpenIds(merged);
+    setTreeData(tree);
+    setRootTruncated(truncated);
+
+    // 4) React commit + arborist 布局完成后，统一 open + 单次 select/scroll。
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    if (useWorkspaceStore.getState().currentFolder !== root) return;
+    for (const id of merged) arboristRef.current?.open(id);
     setSelection(activePath);
-    arboristRef.current?.select(activePath);
-    arboristRef.current?.scrollTo(activePath);
     requestAnimationFrame(() => {
-      setSelection(activePath);
       arboristRef.current?.select(activePath);
       arboristRef.current?.scrollTo(activePath);
     });
@@ -722,8 +739,29 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     }
   }
 
+  function toggleMultiSelect(node: NodeApi<ExplorerEntry>) {
+    setSelectedIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(node.data.id)) next.delete(node.data.id);
+      else next.add(node.data.id);
+      return next;
+    });
+  }
+
+  function clearMultiSelect() {
+    setSelectedIds((cur) => (cur.size ? new Set<string>() : cur));
+  }
+
   function dragStartEntries(nodes: NodeApi<ExplorerEntry>[]) {
-    draggingEntries.current = nodes.map((node) => node.data).filter((entry) => canDrag(entry));
+    const primary = nodes[0];
+    // 拖拽的是多选集合中的一员且多选 >1 → 批量拖；否则只拖该条。
+    const entries =
+      primary && selectedIds.has(primary.data.id) && selectedIds.size > 1
+        ? [...selectedIds]
+            .map((id) => arboristRef.current?.get(id)?.data)
+            .filter((entry): entry is ExplorerEntry => !!entry)
+        : nodes.map((node) => node.data);
+    draggingEntries.current = entries.filter((entry) => canDrag(entry));
   }
 
   function clearDraggingEntries() {
@@ -768,7 +806,8 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
   // 打开「新建文件/文件夹」应用内对话框（WebView 不支持 window.prompt）。
   async function openCreateFileDialog(parent: string) {
     closeCtx();
-    const def = await uniqueChildName(parent, 'untitled.md');
+    // 默认名 = `YYYY-MM-DD-.md`，光标停在末尾「-」后等待补标题（onFocus 处理）。
+    const def = await uniqueChildName(parent, `${nowISO().slice(0, 10)}-.md`);
     setNameInput(def);
     setNameDialog({ kind: 'file', parentPath: parent });
   }
@@ -805,8 +844,10 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     if (dialog.kind === 'file') {
       const finalName = /\.[a-z0-9]+$/i.test(raw) ? raw : `${raw}.md`;
       const target = joinPath(dialog.parentPath, finalName);
+      // Markdown 文件建后立即写入 frontmatter（= 先存一次，盘上即带默认 YAML）。
+      const isMd = /\.(md|markdown|mdown|mkd)$/i.test(finalName);
       try {
-        await eidonInvoke('editor:createFile', { path: target, content: '' });
+        await eidonInvoke('editor:createFile', { path: target, content: isMd ? initialMarkdownContent() : '' });
         scheduleRefresh();
         await files.openPath(target);
       } catch (error) {
@@ -945,24 +986,19 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     }
   }
 
-  /** 「移动到…」候选：全部 L3 节点，排除条目当前所在目录与自身子树。 */
-  const moveTargets = (() => {
-    if (!moveDialogEntry) return [];
-    const root = currentFolder ?? '';
-    const currentParent = dirname(moveDialogEntry.path);
-    const keyword = moveFilter.trim().toLowerCase();
-    return scannedNodes
-      .filter((scanned) => scanned.node.level === 3)
-      .map((scanned) => ({
-        rel: scanned.path,
-        abs: joinPath(root, scanned.path),
-        name: scanned.path.split('/').pop() ?? scanned.path,
-      }))
-      .filter((target) => target.abs !== currentParent)
-      .filter((target) => !(moveDialogEntry.isDir && isSameOrChild(target.abs, moveDialogEntry.path)))
-      .filter((target) => !keyword || target.rel.toLowerCase().includes(keyword))
-      .sort((a, b) => a.rel.localeCompare(b.rel));
-  })();
+  // 被移动的条目是否为结构节点（L1/L2/L3）→ 走「降级/重定位」（任意节点可作落点）；否则普通文件（仅 L3）。
+  const movingStructureNode = moveDialogEntry ? getStructureNode(moveDialogEntry) : null;
+
+  /** 移动落点合法性：节点降级=任意节点（除自身/子树/当前父）；普通文件=仅 L3。 */
+  const isValidMoveTarget = (rel: string, level: Level): boolean => {
+    if (!moveDialogEntry) return false;
+    const movedRel = relFor(moveDialogEntry.path);
+    const currentParentRel = parentRelPath(movedRel);
+    if (rel === currentParentRel) return false;
+    if (rel === movedRel || rel.startsWith(`${movedRel}/`)) return false; // 自身/子树
+    if (movingStructureNode) return true; // 节点降级：任意层级节点可作落点
+    return level === 3; // 普通文件/文件夹：仅 L3
+  };
 
   function openMoveDialog(entry: ExplorerEntry) {
     closeCtx();
@@ -975,6 +1011,31 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
     setMoveDialogEntry(null);
     if (!entry) return;
     await moveEntriesToParent([entry], { id: targetAbs, name: targetName, path: targetAbs, isDir: true });
+  }
+
+  /** 节点降级/重定位：移到目标节点下；落到第 4 层则剥离身份变普通文件夹。 */
+  async function relocateNodeTo(targetRel: string) {
+    const entry = moveDialogEntry;
+    setMoveDialogEntry(null);
+    if (!entry) return;
+    try {
+      const movedRel = relFor(entry.path);
+      const result = await useNodesStore.getState().relocate({ path: movedRel, newParentPath: targetRel });
+      rewriteOpenTabPaths(entry.path, joinPath(currentFolder ?? '', result.path));
+      useToastsStore.getState().success(
+        result.strippedIdentity
+          ? t('explorer.relocateStripped', { name: entry.name })
+          : t('explorer.moved', { count: '1', target: targetRel.split('/').pop() ?? targetRel }),
+      );
+      handleNodeChanged();
+    } catch (error) {
+      useToastsStore.getState().error(`Move failed: ${error}`);
+    }
+  }
+
+  function onMovePick(rel: string) {
+    if (movingStructureNode) void relocateNodeTo(rel);
+    else void moveToTarget(joinPath(currentFolder ?? '', rel), rel.split('/').pop() ?? rel);
   }
 
   /** 一键整理（ADR-0016 的用户显式触发整改）：提升前三层普通文件夹为节点，游离内容文件归入兜底 L3。 */
@@ -1232,11 +1293,6 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
         </div>
       ) : (
         <div className="ftree__body">
-          {/* 工作区名称（非交互标签；快捷切换已移至顶部工具栏） */}
-          <div className="ftree__root-wrap">
-            <span className="ftree__root-name">{rootName}</span>
-          </div>
-
           {/*
             仅「首次加载（尚无树数据）」时显示加载占位；一旦有数据，刷新（新建/删除/重命名/移动/粘贴
             等都会 scheduleRefresh）期间保持 <Tree> 挂载、就地更新 data——绝不 unmount→remount。
@@ -1288,6 +1344,9 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
                     onDropIntoDir={(event, entryNode) => void dropIntoDir(event, entryNode)}
                     onContextMenu={openCtx}
                     isExplicitDropTarget={(entry) => explicitDropTargetPath === entry.path}
+                    isMultiSelected={(entry) => selectedIds.has(entry.id)}
+                    onToggleMultiSelect={toggleMultiSelect}
+                    onClearMultiSelect={clearMultiSelect}
                   />
                 )}
               </Tree>
@@ -1335,6 +1394,9 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
               </button>
               <button className="ftree__ctx-item" onClick={() => openTodoDialog(ctxStructureNode)}>
                 <Icon name="todos" size={14} /> {t('explorer.createTodo')}
+              </button>
+              <button className="ftree__ctx-item" onClick={() => ctx.node && openMoveDialog(ctx.node.data)}>
+                <Icon name="arrow-right" size={14} /> {t('explorer.moveNodeTo')}
               </button>
             </>
           )}
@@ -1414,28 +1476,19 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
                 onChange={(event) => setMoveFilter(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') setMoveDialogEntry(null);
-                  if (event.key === 'Enter' && moveTargets.length > 0) {
-                    void moveToTarget(moveTargets[0].abs, moveTargets[0].name);
-                  }
                 }}
               />
             </div>
-            <div className="ftree__move-list">
-              {moveTargets.map((target) => (
-                <button
-                  key={target.rel}
-                  className="ftree__move-item"
-                  onClick={() => void moveToTarget(target.abs, target.name)}
-                >
-                  <span className="ftree__move-item-icon"><Icon name="folder-tree" size={14} /></span>
-                  <span className="ftree__move-item-name">{target.name}</span>
-                  <span className="ftree__move-item-path">{target.rel}</span>
-                </button>
-              ))}
-              {moveTargets.length === 0 && (
-                <div className="ftree__move-empty">{t('explorer.moveToEmpty')}</div>
-              )}
-            </div>
+            {scannedNodes.length === 0 ? (
+              <div className="ftree__move-empty">{t('explorer.moveToEmpty')}</div>
+            ) : (
+              <NodeTreePicker
+                nodes={scannedNodes.map((scanned) => ({ path: scanned.path, level: scanned.node.level }))}
+                isValidTarget={isValidMoveTarget}
+                filter={moveFilter}
+                onPick={onMovePick}
+              />
+            )}
           </div>
         </div>
       )}
@@ -1459,9 +1512,10 @@ export function FileTree({ onSelectStructureNode = () => undefined }: { onSelect
                 spellCheck={false}
                 onChange={(event) => setNameInput(event.target.value)}
                 onFocus={(event) => {
-                  // 选中文件名主干（不含扩展名），便于直接改名。
+                  // 光标停在扩展名前（日期文件名 → 落在末尾「-」之后，等待补标题；文件夹 → 落在末尾）。
                   const dot = nameInput.lastIndexOf('.');
-                  event.currentTarget.setSelectionRange(0, dot > 0 ? dot : nameInput.length);
+                  const caret = dot > 0 ? dot : nameInput.length;
+                  event.currentTarget.setSelectionRange(caret, caret);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') setNameDialog(null);

@@ -82,18 +82,40 @@ export async function buildSignature(dir: string): Promise<GitSignature> {
 
 /**
  * 绝对路径 → 仓库相对（正斜杠）路径；越界返回 null。
- * 先走廉价前缀剥离；不命中再 canonical 两侧重试（macOS /tmp→/private 符号链接）。
+ * 先走廉价前缀剥离；不命中再 canonical 两侧重试（macOS /tmp→/private 符号链接、别名根目录）。
  */
 export function relPath(dir: string, abs: string): string | null {
   const fast = stripPrefix(dir, abs);
   if (fast !== null) return fast;
+
+  let canonDir: string;
+  try {
+    canonDir = fsSync.realpathSync(dir);
+  } catch {
+    canonDir = path.resolve(dir);
+  }
+
+  // 文件已存在：对完整路径 realpath，覆盖中间段符号链接/别名。
+  try {
+    if (fsSync.existsSync(abs)) {
+      const canonAbs = fsSync.realpathSync(abs);
+      const fromCanon = stripPrefix(canonDir, canonAbs);
+      if (fromCanon !== null) return fromCanon;
+      const fromUnresolved = stripPrefix(dir, canonAbs);
+      if (fromUnresolved !== null) return fromUnresolved;
+    }
+  } catch {
+    /* fall through */
+  }
+
   // canonical 父目录 + 文件名（文件可能刚创建，避免对文件本身 realpath）。
   try {
     const parent = path.dirname(abs);
     const canonParent = fsSync.realpathSync(parent);
     const canonAbs = path.join(canonParent, path.basename(abs));
-    const canonDir = fsSync.realpathSync(dir);
-    return stripPrefix(canonDir, canonAbs);
+    const fromCanon = stripPrefix(canonDir, canonAbs);
+    if (fromCanon !== null) return fromCanon;
+    return stripPrefix(dir, canonAbs);
   } catch {
     return null;
   }

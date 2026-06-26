@@ -7,6 +7,7 @@ import type {
   MoveNodeInput,
   NodeMutationResult,
   PromoteFolderInput,
+  RelocateNodeInput,
   RenameNodeInput,
   ScannedNode,
   Template,
@@ -23,6 +24,7 @@ import {
   ensureDefaultInboxStructure,
   moveNode,
   promoteFolderToNode,
+  relocateNode,
   renameNode,
   scanWorkspace,
   updateNodeFields,
@@ -48,6 +50,10 @@ export const nodeService = {
 
   move: (workspace: string, input: MoveNodeInput): Promise<NodeMutationResult> =>
     moveNode(createWorkspaceStore(workspace), input),
+
+  /** 降级/重定位节点（向下移动 + 按新深度重写 level 或剥离身份）。 */
+  relocate: (workspace: string, input: RelocateNodeInput): Promise<{ path: string; strippedIdentity: boolean }> =>
+    relocateNode(createWorkspaceStore(workspace), input),
 
   updateFields: (workspace: string, input: UpdateNodeFieldsInput): Promise<NodeMutationResult> =>
     updateNodeFields(createWorkspaceStore(workspace), input),

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
-import { projectEvent } from "../session";
+import { mergeSdkAllowedTools, projectEvent } from "../session";
 
 // 用最小对象构造事件（只取 projectEvent 关心的字段）。
 const ev = (e: unknown): AgentSessionEvent => e as AgentSessionEvent;
@@ -57,5 +57,25 @@ describe("projectEvent", () => {
     expect(
       projectEvent("s1", ev({ type: "tool_execution_update", toolCallId: "t1", toolName: "x", args: {}, partialResult: { a: 1 } })),
     ).toEqual([{ kind: "tool_update", sessionId: "s1", toolCallId: "t1", chunk: '{"a":1}' }]);
+  });
+});
+
+describe("mergeSdkAllowedTools", () => {
+  it("unions info tool names with custom tool names (so customTools survive pi's allowlist)", () => {
+    const result = mergeSdkAllowedTools(
+      ["read", "grep", "find", "ls"],
+      [{ name: "edit" }, { name: "write" }, { name: "bash" }, { name: "notify" }, { name: "subagent" }],
+    );
+    // 关键回归：edit/write/bash 等门控 customTool 名必须进入白名单，否则被 pi 连带剔除（BUG: Agent 缺 edit）。
+    expect(result).toEqual(["read", "grep", "find", "ls", "edit", "write", "bash", "notify", "subagent"]);
+  });
+
+  it("dedupes overlapping names and tolerates no custom tools", () => {
+    expect(mergeSdkAllowedTools(["read", "edit"], [{ name: "edit" }, { name: "write" }])).toEqual([
+      "read",
+      "edit",
+      "write",
+    ]);
+    expect(mergeSdkAllowedTools(["read", "ls"], undefined)).toEqual(["read", "ls"]);
   });
 });

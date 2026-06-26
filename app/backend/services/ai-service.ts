@@ -225,6 +225,16 @@ class AiService {
     return (await readProviders()).defaultModel;
   }
 
+  /** 设置默认助手（对话未显式选 Agent 时使用）；`null` = 回退首个 Agent。 */
+  async setDefaultAgent(agentId: string | null): Promise<void> {
+    const file = await readProviders();
+    await writeProviders({ ...file, defaultAgentId: agentId });
+  }
+
+  async getDefaultAgent(): Promise<string | null> {
+    return (await readProviders()).defaultAgentId;
+  }
+
   /** 更新某 provider 的非凭证配置（enabled/baseUrl/api/自定义 headers）。 */
   async setProviderConfig(
     provider: string,
@@ -385,10 +395,17 @@ class AiService {
     await removeAgentDir(id);
   }
 
-  /** 无 Agent 时建一个默认助手，返回其 id；否则返回首个 Agent id。 */
+  /**
+   * 解析默认助手 id：用户在设置里指定的 `defaultAgentId`（仍存在时优先）→ 否则首个 Agent →
+   * 一个都没有时新建「默认助手」。让默认助手成为可在「智能体设置 / 助手」管理的普通条目，而非写死。
+   */
   async ensureDefaultAgent(): Promise<string> {
     const configs = await listAgentConfigs();
-    if (configs.length > 0) return configs[0].id;
+    if (configs.length > 0) {
+      const preferred = (await readProviders()).defaultAgentId;
+      if (preferred && configs.some((c) => c.id === preferred)) return preferred;
+      return configs[0].id;
+    }
     const summary = await this.createAgent({
       name: "默认助手",
       description: "EIDON 默认 AI 助手",

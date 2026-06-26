@@ -98,6 +98,7 @@ function AssetPane({ tab }: { tab: Tab }) {
 }
 
 export function PaneContent({ paneId, tab, onCursor, onSelection }: PaneContentProps) {
+  const { t } = useI18n();
   const viewMode = useSettingsStore((s) => s.viewMode);
   const focusMode = useSettingsStore((s) => s.focusMode);
   const typewriterMode = useSettingsStore((s) => s.typewriterMode);
@@ -328,6 +329,7 @@ export function PaneContent({ paneId, tab, onCursor, onSelection }: PaneContentP
 
   return (
     <div className="pane-content">
+      {!tab && <div className="pane-empty">{t('tabs.emptyPane')}</div>}
       {showAsset && tab && <AssetPane tab={tab} />}
       {showDiff && tab && folder && <DiffView tab={tab} folder={folder} />}
       {showEditor && tab && (

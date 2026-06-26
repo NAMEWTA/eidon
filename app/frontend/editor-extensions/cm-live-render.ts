@@ -322,7 +322,9 @@ const liveRenderPlugin = ViewPlugin.fromClass(
 
 // Rich syntax highlighting — same palette as cm-live-preview.ts but kept
 // here so live-edit can be used independently of the live-preview toggle.
-const liveEditHighlightStyle = HighlightStyle.define([
+// 导出供 cm-config 的 source 模式基础构建复用，使「源码视图」也用同一套 --md-* / --syn-* 配色
+// （而非 defaultHighlightStyle 的平淡默认色），让 # ## ### / 加粗 / 倾斜 / ` ` 清晰可辨。
+export const liveEditHighlightStyle = HighlightStyle.define([
   { tag: t.heading1, fontWeight: '700', color: 'var(--md-h1)' },
   { tag: t.heading2, fontWeight: '700', color: 'var(--md-h2)' },
   { tag: t.heading3, fontWeight: '700', color: 'var(--md-h3)' },

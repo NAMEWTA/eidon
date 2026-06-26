@@ -44,6 +44,7 @@ import type {
   NodeRef,
   NormalizationResult,
   PandocExportArgs,
+  RelocateNodeInput,
   PandocInfo,
   ProviderInfo,
   PromoteFolderInput,
@@ -231,6 +232,11 @@ export interface IpcContract {
     req: { workspace: string } & MoveNodeInput;
     res: NodeMutationResult;
   };
+  /** 降级/重定位节点：向下移动 + 按新深度重写 level 或剥离 `.node/` 身份。 */
+  "nodes:relocate": {
+    req: { workspace: string } & RelocateNodeInput;
+    res: { path: string; strippedIdentity: boolean };
+  };
   "nodes:updateFields": {
     req: { workspace: string } & UpdateNodeFieldsInput;
     res: NodeMutationResult;
@@ -373,6 +379,9 @@ export interface IpcContract {
     res: AgentSummary;
   };
   "agents:delete": { req: { agentId: string }; res: void };
+  /** 默认助手：对话未显式选 Agent 时使用；`null` = 回退首个 Agent。 */
+  "agents:setDefault": { req: { agentId: string | null }; res: void };
+  "agents:getDefault": { req: NoReq; res: string | null };
 
   // ── tools / skills（全局工具管理 + skill 发现）───────────────────────────
   "tools:list": { req: NoReq; res: ToolInfo[] };
@@ -499,6 +508,7 @@ const CHANNEL_PRESENCE: Record<Channel, true> = {
   "nodes:promote": true,
   "nodes:rename": true,
   "nodes:move": true,
+  "nodes:relocate": true,
   "nodes:updateFields": true,
   "nodes:upgradeSchema": true,
   "nodes:ensureInbox": true,
@@ -543,6 +553,8 @@ const CHANNEL_PRESENCE: Record<Channel, true> = {
   "agents:create": true,
   "agents:update": true,
   "agents:delete": true,
+  "agents:setDefault": true,
+  "agents:getDefault": true,
   "tools:list": true,
   "tools:setEnabled": true,
   "skills:list": true,

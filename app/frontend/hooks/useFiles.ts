@@ -17,7 +17,7 @@ import { useSettingsStore } from '../stores/settings';
 import { useToastsStore } from '../stores/toasts';
 import { useRecentEditsStore } from '../stores/recentEdits';
 import { useNodesStore } from '../stores/nodes';
-import { validateEidonWorkspaceContentPath } from '../lib/eidon-paths';
+import { validateEidonWorkspaceContentPath, relativeToWorkspace, findEnclosingL3Path } from '../lib/eidon-paths';
 import { initialMarkdownContent, ensureFrontmatterTimestamps } from '../lib/frontmatter';
 import { stampGoalSetAtIfMissing } from '../lib/writing-goals';
 import type { Language, Tab } from '../types';
@@ -119,8 +119,70 @@ function assetKindForExtension(ext: string): Exclude<NonNullable<Tab['kind']>, '
   return null;
 }
 
+/** 在指定绝对父目录里求不冲突的子文件绝对路径（`a.md` → `a 2.md`）。 */
+async function uniqueChildAbsPath(parentAbs: string, fileName: string): Promise<string> {
+  const { stem, ext } = splitName(fileName);
+  let existing: Set<string>;
+  try {
+    const entries = await eidonInvoke('editor:listDir', { path: parentAbs, includeHidden: true });
+    existing = new Set(entries.map((e) => e.name));
+  } catch {
+    existing = new Set();
+  }
+  const base = parentAbs.replace(/[\\/]+$/, '');
+  for (let i = 0; i < 1000; i++) {
+    const name = i === 0 ? fileName : `${stem} ${i + 1}${ext}`;
+    if (!existing.has(name)) return `${base}/${name}`;
+  }
+  return `${base}/${stem} ${Date.now()}${ext}`;
+}
+
+/** 当前活动编辑器文件所属（最近的）L3 节点绝对路径；不在任何 L3 内返回 null。 */
+async function activeTabEnclosingL3Abs(): Promise<string | null> {
+  const workspaceFolder = useWorkspaceStore.getState().currentFolder;
+  if (!workspaceFolder) return null;
+  const activePath = useTabsStore.getState().activeTab()?.filePath;
+  if (!activePath) return null;
+  const rel = relativeToWorkspace(workspaceFolder, activePath);
+  if (rel === null) return null;
+  const l3 = findEnclosingL3Path(rel, await scannedL3Paths(workspaceFolder));
+  return l3 ? absoluteWorkspacePath(workspaceFolder, l3) : null;
+}
+
+/**
+ * 统一的「新建 Markdown」落地：在目标 L3 建文件、立即写入 frontmatter（= 先存一次）、打开。
+ * 目标父目录优先级：显式传入 > 活动编辑器文件所属 L3 > 默认收件箱。无工作区时退回内存 untitled 标签。
+ */
+export async function createMarkdownAt(parentAbsPath: string | null, fileName: string) {
+  const finalName = /\.[a-z0-9]+$/i.test(fileName) ? fileName : `${fileName}.md`;
+  const workspaceFolder = useWorkspaceStore.getState().currentFolder;
+  let parent = parentAbsPath ?? (await activeTabEnclosingL3Abs());
+  if (!parent) {
+    if (!workspaceFolder) {
+      useTabsStore.getState().newTab({ fileName: finalName, language: 'markdown' });
+      return;
+    }
+    try {
+      parent = absoluteWorkspacePath(workspaceFolder, await useNodesStore.getState().ensureDefaultInbox(workspaceFolder));
+    } catch (error) {
+      useToastsStore.getState().error(`Failed to resolve inbox: ${error}`);
+      return;
+    }
+  }
+  try {
+    const target = await uniqueChildAbsPath(parent, finalName);
+    const isMd = /\.(md|markdown|mdown|mkd)$/i.test(finalName);
+    await eidonInvoke('editor:createFile', { path: target, content: isMd ? initialMarkdownContent() : '' });
+    window.dispatchEvent(new CustomEvent('eidon:saved', { detail: { filePath: target } }));
+    await openPath(target);
+  } catch (error) {
+    useToastsStore.getState().error(`Failed to create file: ${error}`);
+  }
+}
+
+/** 新建 Markdown：弹出统一名称框（预填日期名），由 App 承接 `eidon:new-markdown` 事件渲染。 */
 async function newFile() {
-  await createInDefaultInbox('Untitled.md', 'markdown');
+  window.dispatchEvent(new CustomEvent('eidon:new-markdown'));
 }
 
 async function newTextFile() {

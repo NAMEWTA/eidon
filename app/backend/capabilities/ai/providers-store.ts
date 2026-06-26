@@ -23,6 +23,7 @@ const defaultProviderConfig = (): ProviderConfig => ProviderConfigSchema.parse({
 const emptyProviders = (): ProvidersFile => ({
   version: 1,
   defaultModel: null,
+  defaultAgentId: null,
   providers: {},
 });
 

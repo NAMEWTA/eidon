@@ -1,0 +1,12 @@
+{
+  "dev_entry": "dev/H",
+  "current_phase": "2. Fix Regression",
+  "phase_history": ["1. Diagnose Loop"],
+  "change_status": "completed",
+  "embedded_guides": ["diagnose"],
+  "feedback_loop": "trusted",
+  "hypothesis_status": "confirmed",
+  "regression_test": "added",
+  "debug_artifacts": [],
+  "verification": "pnpm lint + typecheck + test:core 141 green; manual pnpm dev save pending"
+}

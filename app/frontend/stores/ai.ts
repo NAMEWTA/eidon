@@ -65,6 +65,8 @@ interface AiState {
   agents: AgentSummary[];
   /** 当前对话绑定的 Agent（null = 默认）。 */
   activeAgentId: string | null;
+  /** 设置里指定的默认助手 id（对话「默认助手」即解析到它；null = 回退首个 Agent）。 */
+  defaultAgentId: string | null;
   channels: Channel[];
   /** 当前绑定的群聊频道（非 null = 群聊模式）。 */
   activeChannelId: string | null;
@@ -80,6 +82,8 @@ interface AiState {
   historyOpen: boolean;
   /** 当前编辑器打开的文件（作为对话上下文芯片；null=无/已移除）。 */
   contextFile: string | null;
+  /** 待插入对话输入框的文本（编辑器右键「加入 AI 对话」投递；Composer 挂载后消费，避免开面板的挂载竞态）。 */
+  pendingInsert: string | null;
 }
 
 interface AiActions {
@@ -88,6 +92,8 @@ interface AiActions {
   refreshConfig(): Promise<void>;
   refreshAgents(): Promise<void>;
   refreshChannels(): Promise<void>;
+  /** 设为默认助手（持久化到设置；null = 清除，回退首个 Agent）。 */
+  setDefaultAgent(agentId: string | null): Promise<void>;
   setActiveAgent(agentId: string | null): void;
   setActiveChannel(channelId: string | null): void;
   ensureSession(workspace?: string): Promise<void>;
@@ -106,6 +112,8 @@ interface AiActions {
   approveTool(toolCallId: string, approved: boolean): void;
   /** 设置/清除作为上下文的当前编辑器文件。 */
   setContextFile(path: string | null): void;
+  /** 投递一段文本到对话输入框（Composer 挂载后插入到光标处）。 */
+  setPendingInsert(text: string | null): void;
   /** 开关历史浮层。 */
   setHistoryOpen(open: boolean): void;
   setProviderKey(provider: string, apiKey: string): Promise<void>;
@@ -168,6 +176,7 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
   defaultModel: null,
   agents: [],
   activeAgentId: null,
+  defaultAgentId: null,
   channels: [],
   activeChannelId: null,
   activities: [],
@@ -176,6 +185,7 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
   sessions: [],
   historyOpen: false,
   contextFile: null,
+  pendingInsert: null,
 
   async init() {
     if (get().ready) return;
@@ -210,19 +220,25 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
   },
 
   async refreshConfig() {
-    const [available, providers, models, defaultModel, agents, channels] = await Promise.all([
+    const [available, providers, models, defaultModel, agents, channels, defaultAgentId] = await Promise.all([
       aiBridge.isAvailable(),
       aiBridge.listProviders(),
       aiBridge.listModels(),
       aiBridge.getDefaultModel(),
       aiBridge.listAgents(),
       aiBridge.listChannels(),
+      aiBridge.getDefaultAgent(),
     ]);
-    set({ available, providers, models, defaultModel, agents, channels });
+    set({ available, providers, models, defaultModel, agents, channels, defaultAgentId });
   },
 
   async refreshAgents() {
     set({ agents: await aiBridge.listAgents() });
+  },
+
+  async setDefaultAgent(agentId: string | null) {
+    await aiBridge.setDefaultAgent(agentId);
+    set({ defaultAgentId: agentId });
   },
 
   async refreshChannels() {
@@ -392,6 +408,10 @@ export const useAiStore = create<AiState & AiActions>()((set, get) => ({
 
   setContextFile(path: string | null) {
     set({ contextFile: path });
+  },
+
+  setPendingInsert(text: string | null) {
+    set({ pendingInsert: text });
   },
 
   setHistoryOpen(open: boolean) {
